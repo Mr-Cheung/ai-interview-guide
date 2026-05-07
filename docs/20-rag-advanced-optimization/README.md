@@ -889,7 +889,113 @@ def select_eval_tool(scenario):
 
 </details>
 
-### Q14: 什么是state-aware retrieval和agentic retrieval？2026年检索新趋势？
+### Q14: 什么是 LLM-as-a-Judge？为什么它是 RAG 评估的未来？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**LLM-as-a-Judge = 用大模型来评估大模型的输出质量**
+
+**为什么需要 LLM-as-a-Judge？**
+
+```
+传统评估指标的问题：
+- BLEU/ROUGE：看字面重合度，不理解语义
+- Exact Match：过于苛刻，"北京"≠"中国的首都"
+- RAGAS指标：依赖reference answer，但很多场景没有ground truth
+
+LLM-as-a-Judge的优势：
+- 理解语义："北京"和"中国的首都"语义等价
+- 无需reference：端到端评估
+- 可评估多维度：相关性、完整性、有帮助性、无幻觉
+```
+
+**LLM-as-a-Judge 的三种范式：**
+
+| 范式 | 原理 | 优点 | 缺点 |
+|------|------|------|------|
+| **打分制** | LLM直接输出1-10分 | 简单 | 主观性强 |
+| **成对比较** | 两个答案让LLM选哪个更好 | 相对客观 | 需要两个候选 |
+| **多维度评分** | 分别评分相关性/准确性/完整性 | 全面 | token消耗大 |
+
+**生产级 LLM-as-a-Judge 实现：**
+
+```python
+class LLMasJudge:
+    def __init__(self, model="gpt-4o"):
+        self.model = model
+        
+    def evaluate(self, question, answer, context=None):
+        """多维度评估"""
+        prompt = f"""你是一个严格的RAG系统评估专家。请从以下维度评估答案质量：
+
+问题：{question}
+答案：{answer}
+{('检索上下文：' + str(context)) if context else ''}
+
+评估维度：
+1. 答案相关性（1-5）：答案是否切题？
+2. 答案准确性（1-5）：答案是否正确？
+3. 上下文忠实度（1-5）：答案是否基于给定上下文？
+4. 答案完整性（1-5）：答案是否完整回答了问题？
+
+输出格式（严格按这个JSON格式，不要其他内容）：
+{{"relevancy": X, "accuracy": X, "faithfulness": X, "completeness": X, "reasoning": "简短解释"}}
+"""
+        result = llm.call(prompt)
+        return json.loads(result)
+    
+    def pairwise_compare(self, answer_a, answer_b, question):
+        """成对比较：哪个答案更好"""
+        prompt = f"""比较以下两个答案的优劣：
+
+问题：{question}
+
+答案A：{answer_a}
+答案B：{answer_b}
+
+哪个答案更好？只输出A或B，不要解释。"""
+        winner = llm.call(prompt).strip()
+        return winner
+```
+
+**LLM-as-a-Judge 的七大陷阱（面试重点）：**
+
+| 陷阱 | 说明 | 缓解方法 |
+|------|------|----------|
+| **位置偏见** | LLM倾向选第一个答案 | ABBA轮换顺序 |
+| **长度偏见** | LLM倾向选更长的答案 | 控制长度变量 |
+| **自我偏好** | 评估自己的输出更宽松 | 用第三方模型 |
+| **一致性** | 同一答案多次评估结果不同 | 多次采样取平均 |
+| **风格vs内容** | 被格式/表达方式分散注意力 | 设计专门的prompt |
+| **过度宽容** | 打分普遍偏高 | 用相对排名而非绝对分数 |
+| **成本** | 每次评估都要调用LLM | 分层评估，简单用规则 |
+
+**RAG系统中LLM-as-a-Judge的实战应用：**
+
+```python
+# 分层评估策略（平衡成本和准确性）
+def evaluate_rag_system(query, rag_pipeline):
+    # L1：规则快速过滤（零成本）
+    if contains_forbidden_words(answer):
+        return {"score": 0, "reason": "内容安全违规"}
+    
+    # L2：轻量LLM快速判断
+    quick_judge = llm.call(f"""答案{answer}是否回答了问题{query}？只回答是或否。""")
+    if quick_judge == "否":
+        return {"score": 2, "reason": "答非所问"}
+    
+    # L3：完整LLM-as-a-Judge（成本高，但准确）
+    full_eval = llm_as_judge.evaluate(query, answer, context)
+    return full_eval
+```
+
+**面试话术：**
+> "LLM-as-a-Judge是2026年RAG评估的主流方法。传统BLEU/ROUGE看字面重合度，不理解语义——'中国的首都'和'北京'字面不同但语义等价。LLM-as-a-Judge理解这个。但它有七个经典陷阱：位置偏见（总是选第一个）、长度偏见（倾向长的）、自我偏好（夸自己输出）等。生产环境必须做ABBA轮换、多次采样、控制长度变量。我的经验是分层评估——规则先过滤掉差的，剩下的再用LLM-as-a-Judge，这样平衡成本和准确性。"
+
+</details>
+
+### Q15: 什么是state-aware retrieval和agentic retrieval？2026年检索新趋势？
 
 <details>
 <summary>💡 答案要点</summary>

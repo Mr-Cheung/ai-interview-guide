@@ -1268,10 +1268,99 @@ trainer.train()
 
 </details>
 
+### Q14: DAPO 和 GSPO 是什么？它们和 GRPO 有什么区别？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**DAPO = Decoupled Clip → GRPO的进一步解耦**
+
+DAPO（来自 ByteDance）核心改进是"解耦"：
+```
+GRPO 问题：policy KL penalty 和 sample 是在同一个分布上计算的
+DAPO 改进：
+  1. Decoupled Sampling - 生成和评估使用不同的分布
+  2. Dynamic KL Penalty - KL 惩罚系数动态调整
+  3. Token-level Loss - 损失从 sequence 级别细化到 token 级别
+```
+
+| 维度 | GRPO | DAPO |
+|------|------|------|
+| **采样** | 同一分布 | 解耦采样 |
+| **KL惩罚** | 固定系数 | 动态调整 |
+| **损失粒度** | sequence级别 | token级别 |
+| **效果** | 稳定但保守 | 更激进、性能更好 |
+
+**GSPO = Gradient-guided Self-Play Optimization**
+
+GSPO（来自 DeepSeek）核心思想是"梯度引导的自博弈"：
+```python
+# GSPO vs GRPO 核心差异
+GRPO: 基于验证器的奖励信号直接更新
+GSPO: 
+  1. 构建两个 Agent：Generator 和 Critic
+  2. Generator 生成样本
+  3. Critic 用梯度指导 Generator 的方向
+  4. 类似 GAN 的思想，但用 RL 框架
+```
+
+**面试话术：**
+> "DAPO 和 GSPO 是 2025-2026 年 GRPO 的两个主要进化方向。DAPO 解决的是 GRPO 的'保守性'问题——通过解耦采样和动态 KL 惩罚，让策略更新更激进。GSPO 则引入了类似 GAN 的自博弈思想，用梯度引导代替纯验证信号。实际项目里，如果追求稳定可用 GRPO，如果追求极限性能可以尝试 DAPO。"
+
+</details>
+
+### Q15: 什么是信用分配问题（Credit Assignment Problem）？token级别和seq级别的奖励有何不同？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**信用分配问题 = 强化学习中"最终结果好/坏，到底谁贡献了"的问题**
+
+```
+问题场景：
+一个100步的推理任务，最终结果错了
+→ 是第1步就错了，还是第50步才错的？
+→ 中间的99步，哪些该受罚、哪些无辜？
+
+这就是信用分配问题：如何把最终 reward 分配到每一个中间 step/token
+```
+
+**Token级别 vs Sequence级别的奖励对比：**
+
+| 维度 | Seq级别奖励 | Token级别奖励 |
+|------|-------------|---------------|
+| **分配方式** | 整个序列共享同一个 reward | 每个 token 独立 reward |
+| **细粒度** | 粗糙 | 精细 |
+| **计算量** | 小 | 大 |
+| **效果** | 收敛慢，但稳定 | 收敛快，但可能不稳定 |
+| **适用场景** | 稀疏奖励 | 稠密奖励 |
+
+**Token级别奖励的实现方式：**
+
+```python
+# 方式1：稀释法（Dilution）
+# 最终 reward 按衰减分配给前面的 token
+reward_at_step_t = final_reward * gamma^(T-t)
+
+# 方式2：因果贡献法（参考 RLSP）
+# 用梯度方法估算每个 token 对最终 reward 的贡献
+
+# 方式3：蒙特卡洛估计（Monte Carlo）
+# 多次采样，估算每个位置的平均贡献
+```
+
+**面试话术：**
+> "信用分配是 RLHF 最核心的工程问题之一。Seq 级别奖励简单但收敛慢——模型要试错很多次才能知道'哪一步'有问题。Token 级别奖励更精细，但实现复杂，核心难点是如何准确估算每个 token 的边际贡献。实际生产中常用'稀释法'做粗粒度分配，配合 PPO 的 advantage 估计做细粒度调整。"
+
+</details>
+
+---
+
 ## 📝 更新记录
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-05-07 | 新增 Q14 DAPO/GSPO（GRPO进化版）、Q15 信用分配问题 |
 | 2026-04-15 | 新增 Q13 TRL v1.0（75+后训练方法、chaos-adaptive设计哲学） |
 | 2026-03-05 | 新增大模型微调与训练面试题 11 道 |
 

@@ -3640,3 +3640,111 @@ AUDIT_RETENTION_DAYS=90
 | 2026-04-13 | v3.42 | 新增 Q27 什么情况下不应该用MCP（高频反套路面试题） |
 | 2026-04-12 | v3.41 | 新增 Q15 OWASP MCP Top 10 安全风险（10大漏洞详解）、Q16 OWASP Agent Top 10（2026新威胁） |
 | 2026-04-08 | v3.40 | 新增 MCP 协议与工具系统模块（14道高频面试题） |
+
+---
+
+## 九、CoSAI Agentic Identity 与 2026 AI Agent 安全新框架（Q19）
+
+### Q19: 什么是 CoSAI Agentic Identity Framework？2026年5月发布的"签名Agent清单+持续授权"解决了什么问题？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**背景：2026 RSAC 大会的核心议题**
+
+2026年5月6日，CoSAI（Coalition for Secure AI）在 RSAC 2026 大会后发布了重磅报告《Agentic Identity and Access Management》，直指当前 MCP/A2A 协议栈中最核心的未解问题——**Agent 身份认证与授权**。
+
+**核心问题：即使解决了 Confused Deputy，Agent 依然可以被滥用**
+
+> "用户让 AI 总结 PDF，同一个 session 里，Agent 悄悄把客户邮箱改成攻击者控制的地址，再触发密码重置。工具验证了凭证，却无法验证'这个操作是否真的是用户的意图'。"
+
+**CoSAI 三层解决方案：**
+
+```
+┌────────────────────────────────────────────────────┐
+│         CoSAI Agentic Identity Framework           │
+├────────────────────────────────────────────────────┤
+│  1. Signed Agent Manifest（签名Agent清单）         │
+│     → 每个Agent有唯一身份清单，描述它的能力范围    │
+│     → 清单被可信机构签名，无法伪造                 │
+│                                                     │
+│  2. Continuous Authorization（持续授权）           │
+│     → 不是'启动时授权一次'，而是每个操作都验证      │
+│     → 上下文感知：环境、工具、数据敏感度都考虑      │
+│                                                     │
+│  3. On-Behalf-Of Tokens（代操作令牌）              │
+│     → 记录'谁在什么上下文中让Agent执行什么操作'    │
+│     → 完整审计链，可回溯                             │
+└────────────────────────────────────────────────────┘
+```
+
+**签名 Agent Manifest 详解：**
+
+```json
+{
+  "agent_id": "cust-support-agent-v2",
+  "version": "2.1.4",
+  "capabilities": [
+    "read_ticket", "update_ticket_status", "send_email"
+  ],
+  "restrictions": [
+    "cannot_access_financial_data",
+    "cannot_modify_user_email",
+    "max_session_duration: 30min"
+  ],
+  "signed_by": "company-root-ca",
+  "signature": "base64_of_detached_signature",
+  "issued_at": "2026-05-01T00:00:00Z",
+  "expires_at": "2027-05-01T00:00:00Z"
+}
+```
+
+**持续授权的验证逻辑：**
+
+```
+工具在执行前检查三个条件：
+1. digest 存在（原始请求 + 操作描述的哈希）
+2. signature 有效（签名Agent清单由可信CA签发）
+3. declared_operation == actual_action（声明的操作 = 实际执行的操作）
+
+三个条件都满足 → 执行
+任何一个不满足 → 拒绝 + 告警
+```
+
+**On-Behalf-Of Token 的审计链：**
+
+```
+用户请求 → 编排层生成 hash(request + operation) → 绑定到session
+                                    ↓
+工具执行时验证：hash正确 + 签名有效 + 操作匹配
+                                    ↓
+审计日志记录：who asked, what agent, which tool, what data, when
+```
+
+**vs 传统 IAM：**
+
+| 维度 | 传统 IAM（人类用户） | CoSAI Agentic Identity |
+|------|---------------------|------------------------|
+| 身份生命周期 | 长期（几个月） | 任务级（分钟到小时） |
+| 授权方式 | 静态角色 | 动态、上下文感知 |
+| 凭证形式 | 用户名密码/OAuth | 签名清单 + 短期令牌 |
+| 审计粒度 | 用户级别 | 操作级别 |
+| 信任模型 | 边界内信任 | 零信任，每个操作验证 |
+
+**与 MCP 的关系：**
+
+> "MCP 的现有安全机制（OAuth 2.1 + Scope）解决的是'谁可以调用这个Server'，但解决不了'这个Agent在当前上下文中的操作是否合理'。CoSAI 的框架是对 MCP 安全层的补充——它不是在 MCP 协议里加东西，而是加了'验证层'：确保即使 MCP 凭证是合法的，Agent 的操作也不会超出它的声明范围。"
+
+**面试话术：**
+
+> "2026年 RSAC 最热的话题之一是'如何把 Zero Trust 从人扩展到 Agent'。CoSAI 的 Agentic Identity Framework 给出了答案：签名Agent清单解决'你是谁'的问题，持续授权解决'你现在能做什么'的问题，代操作令牌解决'谁让你做的'的问题。这套框架的核心洞察是——凭证验证≠意图验证。工具拿到有效token不代表'这个操作应该发生'。我们在 2025 年底的 MCP 事故里看到了这个问题的后果：42,000 个 OpenClaw 实例暴露，根源就是'认证过了就默认所有操作都合法'。2026 年企业级 MCP 部署，这套框架是必过的检查项。"
+
+**延伸阅读：**
+- CoSAI Agentic Identity Paper: https://www.coalitionforsecureai.org/
+- RSAC 2026 MCP Security Discussion
+
+</details>
+
+---
+
+*版本: v3.93 | 更新: 2026-05-09 | by 二狗子 🐕*

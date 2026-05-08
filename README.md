@@ -2,7 +2,7 @@
 
 # 🚀 AI 应用开发工程师面试宝典
 
-> **⚠️ 本次更新(v3.90)：新增 Q39-Q40 AI编程工具；Q17 RAG防御体系；Q13 Agent Memory；Q26 EAGLE投机采样；Q30 MCP安全现状；Q15 Attention Matching 50x压缩**
+> **⚠️ 本次更新(v3.91)：新增 Q39-Q40 AI编程工具；Q17 RAG防御体系；Q13 Agent Memory；Q26 EAGLE；Q30 MCP安全；Q15 Attention Matching；Q14 LangGraph vs Semantic Kernel**
 
 **🎯 373+ 道高频面试题 | 24 个核心模块 | 从基础到进阶系统化学习**
 
@@ -946,7 +946,7 @@ Made with ❤️ for the AI Community
 | 🆕 | [⚡ 推理优化（新增Q15）](docs/08-inference-optimization/) | Q15 Attention Matching（MIT 50x KV Cache压缩/选择性保留/五大优化方向图/生产级组合策略） | 🔥🔥🔥🔥🔥 | +1 |
 | 🆕 | [🔥 MCP协议与工具（新增Q30）](docs/14-mcp-skill-systems/) | Q30 MCP安全现状（8.5% OAuth使用率/42,000+暴露实例/SSRF/CVSS 9.6/企业级安全清单） | 🔥🔥🔥🔥🔥 | +1 |
 
-*版本: v3.90 | 更新: 2026-05-08 | by 二狗子 🐕*
+*版本: v3.91 | 更新: 2026-05-08 | by 二狗子 🐕*
 
 
 ## 📚 数据更新（v3.86 - 2026-04-30）

@@ -1777,6 +1777,151 @@ Step 3: 输出
 </details>
 
 
+### Q14: LangGraph vs Semantic Kernel 2026年深度对比：微软新一代 Agent Framework 来了，如何选择？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**2026年 AI Agent 框架格局重大变化：**
+
+Microsoft 在 2026 年整合了 Semantic Kernel 和 AutoGen，推出了统一的 **Microsoft Agent Framework**（旗舰产品），同时还有 Foundry SDK、M365 Agents SDK 等多个框架。这让"LangGraph vs Semantic Kernel"的比较变得更加复杂。
+
+**2026年框架选型数据（关键数据）：**
+
+| 框架 | GitHub Stars | 月 PyPI 下载 | 定位 |
+|------|-------------|--------------|------|
+| **LangGraph** | 24,800 | 34.5M | 企业级生产工作流 |
+| **CrewAI** | - | 5.2M | 多 Agent 协作（第二广泛）|
+| **Microsoft Agent Framework** | - | - | Semantic Kernel + AutoGen 统一 |
+| **AutoGen** | - | - | 正在迁移到 Agent Framework |
+
+**LangGraph vs Semantic Kernel 核心对比：**
+
+| 维度 | LangGraph | Semantic Kernel（微软）|
+|------|-----------|----------------------|
+| **出生背景** | LangChain 开源生态 | Microsoft 企业级 AI |
+| **设计思想** | 状态图（Graph）+ 有向循环 | 技能编排（Skills/Plans）|
+| **状态管理** | 内置状态机，节点间共享状态 | 需要手动实现状态传递 |
+| **多 Agent 支持** | 原生支持 agent 间消息传递 | 原生支持，但配置更重 |
+| **Azure 集成** | 无（云无关）| 深度集成 Azure OpenAI、Copilot |
+| **企业合规** | 需自行处理 | 支持 RBAC、审计日志等企业级需求 |
+| **学习曲线** | 中等（需要理解图模型）| 中等（需要理解 Skills/Plans）|
+| **生产采用率** | 最高（34.5M/月下载）| 正在从 Semantic Kernel 迁移 |
+
+**Microsoft Agent Framework 2026 新变化：**
+
+| 变化 | 说明 |
+|------|------|
+| **统一 SDK** | Semantic Kernel + AutoGen → Microsoft Agent Framework |
+| **Foundry SDK** | Azure 云上托管 Agent |
+| **M365 Agents SDK** | 专门针对 Teams/Copilot |
+| **迁移压力** | 已有 AutoGen 生产系统的企业需要规划迁移 |
+
+**为什么 LangGraph 在 2026 年仍然是生产首选？**
+
+```
+LangGraph 的核心优势：
+1. 云无关（不绑定 Azure/AWS/GCP）
+2. 状态管理内置（节点间自动传递状态）
+3. 与 LangChain 生态无缝集成（200+ 工具）
+4. 34.5M 月下载，生产验证最充分
+```
+
+**什么时候选 Semantic Kernel / Microsoft Agent Framework？**
+
+| 场景 | 推荐 | 理由 |
+|------|------|------|
+| **已有 Azure 投资** | Semantic Kernel | Azure OpenAI、Teams、Copilot 深度集成 |
+| **企业合规需求高** | Microsoft Agent Framework | RBAC、审计日志、Microsoft 365 集成 |
+| **需要快速原型** | CrewAI | 最简单的多 Agent 协作，上手最快 |
+| **复杂多步工作流** | LangGraph | 状态机 + 有向循环，生产控制最精细 |
+| **跨云/多云部署** | LangGraph | 云无关，不被 Azure 绑定 |
+
+**2026年决策流程图：**
+
+```
+开始
+  ↓
+你用 Azure 生态吗？ → 是 → 你需要企业合规/RBAC/审计？
+  ↓ 否 ↓ 是
+  ↓ ↓
+选 LangGraph → Microsoft Agent Framework
+  ↓
+你的 Agent 需要多 Agent 协作吗？
+  ↓ 否 ↓ 是
+  ↓ ↓
+LangGraph 单 Agent → CrewAI 最简单 or LangGraph 多 Agent
+```
+
+**LangGraph 多 Agent 示例（2026年最新）：**
+
+```python
+from langgraph.prebuilt import create_react_agent
+from langgraph.messages import HumanMessage
+
+# 三个专业 Agent：研究员、写手、审核员
+researcher = create_react_agent(
+    model,
+    tools=[search_tool, read_file_tool],
+    state_modifier="你是专业研究员，擅长信息检索"
+)
+
+writer = create_react_agent(
+    model,
+    tools=[write_tool],
+    state_modifier="你是专业写手，擅长技术写作"
+)
+
+reviewer = create_react_agent(
+    model,
+    tools=[review_tool],
+    state_modifier="你是严格审核员，只接受高质量内容"
+)
+
+# 工作流编排
+def research_workflow(state):
+    research_output = researcher.invoke(state)
+    return {"messages": [research_output]}
+
+def write_workflow(state):
+    write_output = writer.invoke(state)
+    return {"messages": [write_output]}
+
+def review_workflow(state):
+    review_output = reviewer.invoke(state)
+    return {"messages": [review_output]}
+
+# 条件路由：通过审核则结束，否则返回写手重写
+def should_continue(state):
+    last_msg = state["messages"][-1]
+    if "通过" in last_msg.content:
+        return "END"
+    else:
+        return "rewrite"
+
+# 构建图
+graph = StateGraph(MessagesState)
+graph.add_node("research", research_workflow)
+graph.add_node("write", write_workflow)
+graph.add_node("review", review_workflow)
+
+graph.add_edge("research", "write")
+graph.add_conditional_edges("review", should_continue, {
+    "rewrite": "write",
+    "END": END
+})
+
+app = graph.compile()
+```
+
+**面试话术：**
+
+> "2026年框架选型，我的经验是：LangGraph 仍然是生产首选，因为它是云无关的，状态管理内置，生态最成熟（34.5M 月下载）。Semantic Kernel 适合已经在 Azure 生态的企业——用 Azure OpenAI、Teams Copilot、Microsoft 365 的企业。Microsoft 今年把 Semantic Kernel 和 AutoGen 统一成 Agent Framework，但迁移需要时间。如果让我选新项目，我优先 LangGraph；如果客户已经是 Microsoft 生态，我建议迁移到 Agent Framework。关键是说清楚选型理由，不是背框架名字。"
+
+</details>
+
+---
+
 ### Q13: OpenAI Assistant API 是什么？Thread/Run/File Search/Code Interpreter 怎么用？
 
 <details>

@@ -1405,3 +1405,132 @@ class SemanticCache:
 ---
 
 [返回目录 →](../../README.md)
+
+## 16. RAG 生产级可观测性与监控（Q13）
+
+### Q13: 如何建立 RAG 系统的生产级可观测性体系？有哪些关键监控指标和告警策略？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么 RAG 需要专门的可观测性？**
+
+传统 API 监控只看成功率/延迟，但 RAG 有"检索+生成"两阶段问题——答案错了，可能是检索召回不够，可能是生成幻觉，也可能是上下文太长淹没重点。分层可观测性才能定位根因。
+
+**RAG 三层可观测性架构：**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    可观测性数据层                        │
+├─────────────┬──────────────────┬────────────────────────┤
+│   Tracing   │    Metrics       │      Logging           │
+│  (调用链)    │   (指标)          │     (日志)             │
+├─────────────┼──────────────────┼────────────────────────┤
+│ LangSmith   │ Prometheus        │ 结构化 JSON 日志        │
+│ Arize Phoenix│ Grafana          │ ELK/Splunk             │
+│ Jaeger      │ DataDog           │ CloudWatch              │
+└─────────────┴──────────────────┴────────────────────────┘
+```
+
+**RAG 四类关键指标：**
+
+| 类别 | 指标 | 目标值 | 告警阈值 |
+|------|------|--------|----------|
+| **检索质量** | Recall@K, MRR, NDCG | >85% | <75% |
+| **生成质量** | faithfulness, answer relevance | >0.8 | <0.6 |
+| **系统性能** | TTFT, tokens/sec, P99延迟 | <2s | >5s |
+| **业务指标** | 用户满意度, 转化率, 重试率 | 基准+5% | 基准-10% |
+
+**LangSmith 监控实战配置：**
+
+```python
+from langchain.callbacks import trStructuredCallback
+from langsmith import Client
+
+client = Client()
+
+# 创建 RAG 评估数据集
+dataset = client.create_dataset(
+    "rag-evaluation",
+    description="RAG 系统评估数据集"
+)
+
+# 添加评估用例
+client.create_examples(
+    [
+        {"question": "如何申请年假？", "answer": "员工需提前3天提交申请...", "contexts": [...]},
+        {"question": "公司报销流程？", "answer": "通过OA系统提交...", "contexts": [...]},
+    ],
+    dataset_id=dataset.id
+)
+
+# 持续监控
+def monitor_rag_results(run):
+    if run.outputs.get("faithfulness") < 0.6:
+        # 触发告警
+        send_alert(f"Faithfulness 低于阈值: {run.outputs['faithfulness']}")
+```
+
+**Arize Phoenix 埋点实战：**
+
+```python
+from phoenix.trace import Trace
+from phoenix.evals import RAGASMetric
+
+# 追踪每次 RAG 调用
+with Trace("rag-retrieval") as trace:
+    chunks = retriever.get_chunks(query)
+    trace.set_attribute("num_chunks", len(chunks))
+    trace.set_attribute("avg_chunk_score", np.mean([c.score for c in chunks]))
+    
+with Trace("rag-generation") as trace:
+    answer = generator.generate(query, chunks)
+    trace.set_attribute("prompt_tokens", answer.usage.prompt_tokens)
+    trace.set_attribute("completion_tokens", answer.usage.completion_tokens)
+
+# 离线评估
+results = evaluate_ragas(
+    dataset=dataset,
+    metrics=[RAGASMetric.FAITHFULNESS, RAGASMetric.ANSWER_RELEVANCE]
+)
+```
+
+**告警策略设计：**
+
+```yaml
+# Prometheus 告警规则
+groups:
+- name: rag-alerts
+  rules:
+  - alert: RAGRetrievalRecallLow
+    expr: recall_at_10 < 0.75
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "RAG 召回率低于 75%"
+      
+  - alert: RAGGeneratonHallucination
+    expr: faithfulness < 0.6
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "RAG 幻觉率过高"
+      
+  - alert: RAGLatencyHigh
+    expr: histogram_quantile(0.99, rag_latency) > 5
+    for: 3m
+    labels:
+      severity: warning
+```
+
+**面试话术：**
+
+> "RAG 的可观测性有三个层次：检索层看召回率+chunk覆盖率，生成层看 faithfulness+answer relevance，系统层看 TTFT+成本。我们用 LangSmith 做调用链追踪，每次 RAG 调用都记录检索了多少 chunks、用了多少 tokens、最终 faithfulness 是多少。A/B 测试时，对比新旧两套策略的指标差异，这比主观感受要客观得多。上线前跑一遍评估数据集，上线后每天抽样 5% 做人工回访，这套机制让我们把用户投诉率从 8% 降到了 2%。"
+
+</details>
+
+---
+
+*版本: v1.13 | 更新: 2026-05-09 | by 二狗子 🐕*

@@ -1992,3 +1992,202 @@ class ImageQualityEvaluator:
 ---
 
 [返回目录 →](../../README.md)
+
+---
+
+## 七、Vision-Language Agent 评估：MMLU-Pro、MathVista、ChartQA、DocVQA（Q17）
+
+### Q17: 如何系统评估 Vision-Language Agent？MMLU-Pro、MathVista、ChartQA、DocVQA 等基准测试各测什么？2026年有哪些新方向？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**2026年 Vision-Language Agent 评估格局：**
+
+```
+┌─────────────────────────────────────────────────────┐
+│     Vision-Language Agent 评估体系                  │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  基础视觉理解（通用）                                │
+│  ├─ MMMU-Pro：多模态理解基准（大学水平知识）        │
+│  ├─ MMBench：多模态理解（选择题为主）               │
+│  └─ SeedBench：指令跟随 + 视觉理解                  │
+│                                                     │
+│  视觉推理（Reasoning）                              │
+│  ├─ MathVista：数学视觉推理                        │
+│  ├─ ChartQA：图表理解与推理                        │
+│  └─ VQA v2：日常视觉问答                           │
+│                                                     │
+│  文档/结构化理解（专业）                            │
+│  ├─ DocVQA：文档理解（OCR+理解）                   │
+│  ├─ InfoVQA：信息图理解                            │
+│  └─ TableVQA：表格理解                              │
+│                                                     │
+│  Agent 能力（真实任务）                             │
+│  ├─ VisCoord：视觉坐标推理                        │
+│  ├─ VisualWebArena：网页视觉 Agent                │
+│  └─ PC-Agent：计算机操作 Agent                      │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**MMLU-Pro（Massive Multidisciplinary Multimodal Reasoning）：**
+
+> "MMLU-Pro 是 2026 年最重要的多模态基准，测试模型在大学水平知识的多模态理解能力。区别于原版 MMLU（纯文本），MMLU-Pro 要求模型同时理解文本+图像来完成问答。"
+
+| 维度 | 说明 |
+|------|------|
+| **测试内容** | 物理、化学、生物、历史、法律、医学等大学学科 |
+| **题目类型** | 选择题（含图表、公式、实验结果图）|
+| **难度** | 大学水平，需要图文联合推理 |
+| **评分** | Accuracy（准确率）|
+| **2026年 Leaderboard** | GPT-4.5领先，Claude 3.7 Sonnet 紧随其后 |
+
+**MathVista（数学视觉推理）：**
+
+> "MathVista 测试 AI 的'视觉数学推理'能力——不是单纯的计算，而是要看图推理。比如看一个几何图形证明题、看一张数据图表回答问题。"
+
+| 维度 | 说明 |
+|------|------|
+| **测试内容** | 几何、代数、统计、图表推理 |
+| **题目来源** | 数学教科书、竞赛题、研究论文中的图表 |
+| **难点** | 需要同时理解视觉结构 + 数学符号 + 逻辑推理 |
+| **评分指标** | Accuracy + Pass@k（多步推理）|
+
+```python
+# MathVista 评估示例
+def evaluate_mathvista(model, testset):
+    """评估模型在 MathVista 上的表现"""
+    correct = 0
+    total = len(testset)
+    
+    for item in testset:
+        # 输入：图片 + 数学问题
+        image = item["image"]  # 几何图形/图表
+        question = item["question"]  # "求证平行四边形对角相等"
+        
+        # 模型回答
+        answer = model.generate(
+            image=image,
+            question=question,
+            reasoning="step-by-step"  # 要求展示推理过程
+        )
+        
+        if answer == item["ground_truth"]:
+            correct += 1
+    
+    return {
+        "accuracy": correct / total,
+        "benchmark": "MathVista"
+    }
+```
+
+**ChartQA（图表理解）：**
+
+> "ChartQA 测试模型理解和推理常见图表的能力——柱状图、折线图、饼图。要求不仅能'看懂'，还要能推理变化趋势、计算增长率、比较大小。"
+
+| 维度 | 说明 |
+|------|------|
+| **图表类型** | 柱状图、折线图、饼图、混合图 |
+| **问题类型** | 描述性（什么最高）、比较性（增长多少）、推理性（为什么）|
+| **难度** | 需要数值计算 + 视觉定位 + 逻辑推理 |
+| **评分** | Relaxed Accuracy（允许近似值）|
+
+**DocVQA（文档理解）：**
+
+> "DocVQA 测试 AI 理解和回答关于文档内容的问题能力。典型场景：给 AI 一份 PDF 合同或发票，问'这份合同的总金额是多少'。"
+
+| 维度 | 说明 |
+|------|------|
+| **文档类型** | 发票、合同、表单、报告、技术文档 |
+| **能力** | OCR + 版面理解 + 文本理解 + 问答 |
+| **难点** | 多页文档、长表格、混合语言、手写体 |
+| **评估指标** | ANLS（Average Normalized Levenshtein Similarity）|
+
+```python
+# DocVQA 生产级评估 Pipeline
+def evaluate_docvqa(documents, questions):
+    """
+    生产环境 DocVQA 评估流程
+    """
+    results = []
+    
+    for doc in documents:
+        # 1. 文档预处理
+        pages = parse_document(doc)  # PDF → 图片页
+        ocr_text = extract_text(pages)  # OCR 提取文本
+        
+        # 2. 多页检索
+        relevant_pages = retrieve_relevant_pages(
+            question, pages, top_k=3
+        )
+        
+        # 3. 生成答案
+        answer = multimodal_llm.generate(
+            images=relevant_pages,
+            context=ocr_text,
+            question=question
+        )
+        
+        # 4. 评分（允许数值近似）
+        score = normalized_levenshtein_similarity(
+            answer, ground_truth
+        )
+        results.append(score)
+    
+    return {
+        "anls": np.mean(results),
+        "coverage": len(results) / len(documents)
+    }
+```
+
+**2026年新方向：PC-Agent + VisualWebArena**
+
+| 基准 | 测试场景 | 核心能力 |
+|------|----------|----------|
+| **PC-Agent** | 操作电脑（点击、拖拽、输入）| 视觉坐标理解 + 动作序列规划 |
+| **VisualWebArena** | 网页导航 + 信息提取 | 视觉理解 + GUI 操作 |
+| **VisualWebBench** | 网页多模态问答 | 视觉理解 + 知识推理 |
+
+**评估策略：分层评估**
+
+```
+┌─────────────────────────────────────────────────────┐
+│         分层评估策略                               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  L1: 基础能力（自动评估）                           │
+│  ├─ MMMU-Pro、ChartQA、DocVQA（Benchmark 分数）     │
+│  └─ 自动化，可 CI/CD 集成                           │
+│                                                     │
+│  L2: 推理能力（人工抽样）                           │
+│  ├─ MathVista（推理步骤检查）                       │
+│  └─ 抽样 5%，人工复核                               │
+│                                                     │
+│  L3: Agent 能力（真实任务）                         │
+│  ├─ PC-Agent（计算机操作）                          │
+│  ├─ VisualWebArena（网页操作）                     │
+│  └─ 端到端评测，模拟真实用户场景                    │
+│                                                     │
+│  L4: 生产监控（持续采集）                           │
+│  ├─ 用户满意度 + 任务完成率 + 重新生成率            │
+│  └─ 线上指标，真实反馈                              │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**面试话术：**
+
+> "Vision-Language Agent 评估不是跑一个 benchmark 就完了。2026年的评估体系是分层的：L1 用 MMMU-Pro、ChartQA 自动评分，快速迭代；L2 用 MathVista 抽样人工复核推理质量；L3 用 PC-Agent、VisualWebArena 做端到端真实任务；L4 用生产数据监控真实满意度。我的经验是'基准分数是必要条件，不是充分条件'——基准分数高不代表生产好用，所以一定要有 L3 的真实任务评估和 L4 的线上监控。"
+
+**延伸阅读：**
+- MMLU-Pro: https://mmmu-pro.github.io/
+- MathVista: https://mathvista.github.io/
+- DocVQA: https://www.docvqa.org/
+
+</details>
+
+---
+
+*版本: v3.2 | 更新: 2026-05-09 | by 二狗子 🐕*

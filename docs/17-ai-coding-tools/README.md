@@ -4390,6 +4390,111 @@ https://github.com/marketplace/actions/pr-autofix-with-claude-code
 
 
 
+### Q43: Claude Code `ultrareview`是什么？为什么"云端bug-hunting fleet"是2026年AI代码审查的革命性突破？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**2026年5月 Week 18/19 新功能：`/ultrareview`（公开研究预览）**
+
+> "2026年5月，Claude Code发布了`/ultrareview`——一个云端bug-hunting agents fleet。多个专门训练的审查Agent在Anthropic云端并行运行代码审查，发现的问题自动推送到开发者的CLI或Desktop App。这是代码审查从'单人多文件'到'多Agent并行全库扫描'的革命性升级。"
+
 ---
 
+**`/ultrareview` 核心设计：**
+
+```
+传统代码审查：
+  → 开发者手动审查 PR
+  → 每次审查有限文件
+  → 依赖审查者经验
+  → 人工疲劳，审查深度随时间下降
+
+ultrareview：
+  → 多个专门bug-hunting Agent并行运行
+  → Fleet架构，每个Agent专注不同维度
+  → 全代码库扫描，不只是 diff
+  → 结果推送到CLI/Desktop
+```
+
+**审查Agent维度分工：**
+
+| Agent类型 | 专注领域 | 审查内容 |
+|-----------|---------|---------|
+| **Security Agent** | 安全漏洞 | SQL注入、XSS、密钥泄露、权限问题 |
+| **Performance Agent** | 性能问题 | N+1查询、内存泄漏、算法复杂度 |
+| **Logic Agent** | 逻辑错误 | 边界条件、空指针、业务逻辑 |
+| **Style Agent** | 代码质量 | 可读性、最佳实践、一致性 |
+| **Dependency Agent** | 依赖风险 | 过期依赖、已知漏洞、版本冲突 |
+
+**使用方式：**
+
+```bash
+# 触发 ultrareview（公开研究预览）
+/ultrareview
+
+# 可选：指定审查范围
+/ultrareview --scope=security      # 只跑安全审查
+/ultrareview --files=src/**/*.py   # 指定文件范围
+/ultrareview --severity=critical   # 只报告严重问题
+
+# 结果自动推送到CLI
+[ultrareview] Security Agent: 发现 3 个高危漏洞
+[ultrareview] Performance Agent: 发现 1 个 N+1 查询问题
+[ultrareview] Logic Agent: 发现 2 个边界条件未处理
+
+# 开发者确认后自动创建 fix PR
+```
+
+**为什么是革命性突破：**
+
+```
+1. 全库扫描 vs 增量diff
+   传统审查：只看本次PR改了什么
+   ultrareview：看整个代码库上下文，不仅diff
+
+2. 多Agent并行 vs 单人串行
+   传统审查：一个人审查所有维度
+   ultrareview：多个专门Agent同时工作，各司其职
+
+3. 云端执行 vs 本地阻塞
+   传统审查：本地执行，阻塞开发流程
+   ultrareview：云端运行，不占用本地资源
+
+4. 主动推送 vs 被动查询
+   传统审查：开发者问才有答
+   ultrareview：发现严重问题主动推送，不需要手动触发
+```
+
+---
+
+**Week 18 其他更新：**
+
+| 功能 | 说明 |
+|------|------|
+| **`claude project purge`** | 清理项目本地状态，重置Claude Code对项目的记忆 |
+| **PR URL粘贴到`/resume`** | 粘贴PR URL自动找到创建该PR的session并恢复 |
+| **Session Recap** | 终端失焦时发生的事自动摘要显示 |
+| **Custom Themes** | 从`/theme`或plugin构建和发布配色方案 |
+| **Windows改进** | 不再需要Git Bash，用PowerShell作为shell |
+| **Web版Claude Code Redesign** | 新sessions侧边栏、拖拽布局 |
+
+---
+
+**Week 19 更新：**
+
+| 功能 | 说明 |
+|------|------|
+| **`claude ultrareview`（公开研究预览）** | 云端bug-hunting fleet，审查结果推送到CLI |
+| **Claude Code on Web** | 网页版重新设计，sessions侧边栏、拖拽布局 |
+
+---
+
+**面试话术：**
+
+> "2026年5月Claude Code的`/ultrareview`是代码审查的革命性突破——它用多Agent fleet替代了单人多文件审查。每个Agent专门负责一个维度（安全、性能、逻辑等），并行扫描全代码库，不只是diff。关键创新是'主动推送'模式：不需要开发者手动触发，Agent发现严重问题直接推送到CLI。面试能说清楚ultrareview的fleet架构和它解决的痛点（人工审查疲劳、增量diff局限性），说明你在关注AI编程工具的最前沿进展。"
+
+</details>
+
+---
 *版本: v2.31 | 更新: 2026-05-12 | by 二狗子 🐕*

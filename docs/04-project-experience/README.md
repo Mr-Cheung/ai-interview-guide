@@ -1647,3 +1647,261 @@ workflow:
 
 </details>
 
+
+### Q9: 你的 RAG 知识库是如何实现文档解析和内容提取的？PDF、Word、HTML 等不同格式如何处理？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么文档解析是 RAG 项目的基础能力？**
+
+```
+"Garbage in, Garbage out" — 如果文档解析质量差，Embedding 就建立在错误内容上
+
+实际项目经验：
+- 简历解析：表格布局、多栏设计、照片都要识别
+- 合同解析：法务条款、签名位置、日期都要提取
+- 论文解析：数学公式、参考文献、图表标题都是关键信息
+```
+
+**2026年文档解析技术栈：**
+
+| 格式 | 推荐工具 | 难点 |
+|------|----------|------|
+| **PDF（扫描件）** | PaddleOCR + 布局检测 | 旋转、阴影、水印 |
+| **PDF（文字版）** | PyMuPDF / pdfplumber | 表格、多栏、页眉页脚 |
+| **Word (.docx)** | python-docx / Mammoth | 宏、嵌入对象、样式继承 |
+| **HTML** | BeautifulSoup / Trafilatura | 广告移除、JS 渲染内容 |
+| **Markdown** | 正则 + 语法解析 | 层级结构、代码块 |
+
+**生产级 PDF 解析 pipeline：**
+
+```python
+from paddleocr import PaddleOCR
+from pdf2image import convert_from_path
+import fitz  # PyMuPDF
+
+def parse_pdf_advanced(pdf_path: str) -> list[dict]:
+    """
+    生产级 PDF 解析：自动识别扫描件 / 文字版 / 表格
+    """
+    results = []
+    
+    # Step 1: 判断是扫描件还是文字版
+    doc = fitz.open(pdf_path)
+    first_page_text = doc[0].get_text()
+    is_scanned = len(first_page_text.strip()) < 100  # 文字太少 → 扫描件
+    
+    if is_scanned:
+        # 扫描件：用 PaddleOCR 识别
+        ocr = PaddleOCR(use_angle_cls=True, lang='ch')
+        images = convert_from_path(pdf_path)
+        
+        for page_num, image in enumerate(images):
+            result = ocr.ocr(np.array(image), cls=True)
+            for line in result[0]:
+                results.append({
+                    "page": page_num + 1,
+                    "text": line[1][0],
+                    "bbox": line[0],
+                    "confidence": line[1][1]
+                })
+    else:
+        # 文字版：用 PyMuPDF 提取文字 + 表格
+        for page_num, page in enumerate(doc):
+            blocks = page.get_text("blocks")
+            tables = page.extract_tables()
+            
+            for block in blocks:
+                if block[4].strip():  # 非空文本块
+                    results.append({
+                        "page": page_num + 1,
+                        "text": block[4],
+                        "bbox": block[:4],
+                        "type": "text"
+                    })
+            
+            # 表格单独处理
+            for table in tables:
+                table_text = table_to_markdown(table)
+                results.append({
+                    "page": page_num + 1,
+                    "text": table_text,
+                    "type": "table"
+                })
+    
+    return results
+```
+
+**表格解析专项（合同、财务报表）：**
+
+```python
+importtabula  # Java 写的表格提取，准确性高
+import camelot  # Python 表格提取，API 更友好
+
+def extract_tables_with_camelot(pdf_path: str) -> list[str]:
+    """用 camelot 提取表格，转 Markdown"""
+    tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
+    
+    markdown_tables = []
+    for table in tables:
+        # camelot 会自动检测表格边界
+        df = table.df
+        # 转成 Markdown 格式，方便后续 Chunk
+        md = df.to_markdown(index=False)
+        markdown_tables.append(md)
+    
+    return markdown_tables
+```
+
+**面试话术：**
+> "我的项目里 PDF 解析遇到过两个坑：一是扫描件用纯文字提取是空的，必须上 OCR；二是合同表格用 naive 提取会把一格拆成多格。后来我用了'分层解析'策略——先判断是扫描件还是文字版，再分别走 PaddleOCR 和 PyMuPDF，表格再用 Camelot 二次提取。生产环境准确率从 70% 提到了 95%。简历、合同、论文不同文档类型要选对工具，不能一套方案打天下。"
+
+</details>
+
+### Q10: RAG 知识库如何处理文档更新和版本管理？用户修改了文档后，索引如何同步？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么版本管理是生产级 RAG 的必备能力？**
+
+```
+文档更新场景：
+- 用户上传了新版本合同，覆盖旧版本
+- 知识库文章修改，但答案还是基于旧内容
+- FAQ 更新，Bot 回答还是老答案
+
+→ 如果索引不更新，RAG 会用过期知识回答，误导用户
+```
+
+**三种文档更新策略：**
+
+**策略1：基于时间戳的增量更新（适合新闻、博客）**
+
+```python
+class TimeBasedIndexer:
+    """基于文档修改时间戳的增量索引"""
+    
+    def __init__(self, vector_store, embedding_model):
+        self.vector_store = vector_store
+        self.embedding_model = embedding_model
+    
+    def sync_knowledge_base(self, docs_path: str):
+        """
+        每次同步：
+        1. 扫描文档目录，记录文件修改时间
+        2. 对比上次同步记录，找出'新增/修改'的文件
+        3. 只对变化的文件重新计算 Embedding + 索引
+        """
+        current_state = self._scan_files(docs_path)
+        previous_state = self._load_previous_state()  # {"file": "mtime"}
+        
+        # 找出增量
+        changed_files = {
+            f: mtime for f, mtime in current_state.items()
+            if f not in previous_state or previous_state[f] != mtime
+        }
+        
+        deleted_files = set(previous_state.keys()) - set(current_state.keys())
+        
+        # 删除已移除文档的索引
+        for f in deleted_files:
+            doc_id = self._get_doc_id(f)
+            self.vector_store.delete(doc_id)
+        
+        # 只索引变化的文档
+        for f in changed_files:
+            chunks = self._parse_and_chunk(f)
+            vectors = self.embedding_model.encode(chunks)
+            self.vector_store.add(doc_id=self._get_doc_id(f), vectors=vectors)
+        
+        self._save_state(current_state)
+```
+
+**策略2：全文检索 + 向量检索双保险（适合版本敏感场景）**
+
+```python
+class HybridIndexer:
+    """向量检索 + 全文检索双保险，版本敏感场景"""
+    
+    def __init__(self):
+        self.vector_store = ChromaDB()      # 向量检索
+        self.fulltext_store = Elasticsearch()  # 全文检索
+        self.metadata_store = SQLite()      # 版本元数据
+    
+    def index_document(self, doc_id: str, content: str, version: str):
+        # 1. 向量索引（用于语义检索）
+        vector = self.embedding_model.encode(content)
+        self.vector_store.upsert(doc_id, vector)
+        
+        # 2. 全文索引（用于精确关键词检索 + 版本对比）
+        self.fulltext_store.index(doc_id, content, version=version)
+        
+        # 3. 元数据记录版本（用于版本溯源）
+        self.metadata_store.put(doc_id, version=version, indexed_at=datetime.now())
+    
+    def retrieve(self, query: str, user_version: str = None):
+        """
+        检索时：
+        - 向量检索保证语义理解
+        - 全文检索保证版本最新
+        - 元数据校验版本一致性
+        """
+        # 向量检索 Top-K
+        vector_results = self.vector_store.search(query, top_k=10)
+        
+        # 过滤过期版本
+        if user_version:
+            fresh_results = []
+            for r in vector_results:
+                indexed_version = self.metadata_store.get(r.doc_id)["version"]
+                if indexed_version == user_version:
+                    fresh_results.append(r)
+            return fresh_results
+        
+        return vector_results
+```
+
+**策略3：事件驱动实时更新（适合高变更频率知识库）**
+
+```python
+# 用 Watchdog 监控文件系统变化，实时触发索引更新
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+class KnowledgeBaseWatcher(FileSystemEventHandler):
+    """监控知识库目录，文件变化自动触发索引更新"""
+    
+    def __init__(self, indexer: TimeBasedIndexer):
+        self.indexer = indexer
+    
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        if event.src_path.endswith(('.pdf', '.docx', '.md')):
+            # 延迟防抖（避免频繁触发）
+            self.debounce(event.src_path, delay_seconds=2)
+    
+    def debounce(self, path, delay_seconds):
+        import threading
+        timer = threading.Timer(delay_seconds, self._do_index, args=[path])
+        timer.start()
+    
+    def _do_index(self, path):
+        print(f"文档变更检测: {path}，触发索引更新")
+        self.indexer.sync_single_file(path)
+```
+
+**生产选型建议：**
+
+| 场景 | 推荐策略 | 原因 |
+|------|----------|------|
+| 静态知识库（手册、文档） | 定时增量同步 | 变化少，小时级同步足够 |
+| 高变更知识库（FAQ、新闻） | 事件驱动实时 | 变化频繁，需要秒级响应 |
+| 版本敏感（合同、法务） | 全文+向量双保险 | 需要版本溯源和对比 |
+
+**面试话术：**
+> "文档更新是生产 RAG 的高频痛点。我的经验是'分层更新'：变化频率低的用定时任务（每小时扫一次），变化高的用文件监控实时触发。最关键的是版本溯源——用户问'这份合同什么时候更新的'，你得能回答出来。我用了 SQLite 存元数据（版本号、更新时间），每次检索时校验版本，过期内容直接过滤掉。这是很多 demo 级 RAG 不会考虑但生产必须解决的问题。"
+
+</details>

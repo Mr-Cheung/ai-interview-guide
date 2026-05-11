@@ -2603,3 +2603,94 @@ result = agent.run("客户张先生反映最近订单发货延迟")
 ---
 
 *版本: v2.9 | 更新: 2026-05-09 | by 二狗子 🐕*
+
+### Q19: A2A 和 MCP 协议边界在哪里？什么场景必须 A2A+MCP 混合，不能只用某一个？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**A2A vs MCP 的核心差异（面试必考）：**
+
+```
+A2A = "Agent 找 Agent" → 能力注册 + 任务委托 + 状态同步
+MCP = "Agent 找工具" → 工具发现 + 调用执行 + 结果返回
+
+类比：
+- MCP = USB 协议 → 鼠标、键盘插入电脑就能用
+- A2A = HTTP 协议 → 浏览器找服务器通信
+
+一个 Agent 要调用外部工具 → MCP
+两个 Agent 要协作完成一件事 → A2A
+```
+
+**什么时候只用 MCP，不用 A2A：**
+
+| 场景 | 原因 |
+|------|------|
+| 单 Agent + 多个工具 | Agent 只需要调用工具，不需要和其他 Agent 通信 |
+| 工具是确定性服务（查数据库、调 API） | MCP 的 request/response 模式更简单直接 |
+| 企业已有 MCP Server 生态 | 直接复用，不需要额外搭建 A2A 基础设施 |
+
+**什么时候只用 A2A，不用 MCP：**
+
+| 场景 | 原因 |
+|------|------|
+| 多 Agent 协作，但没有外部工具需求 | Agent 之间同步状态、分工，不需要调用外部工具 |
+| 任务委派（Task Delegation） | 一个 Agent 把任务交给另一个 Agent，需要双向状态同步 |
+| 实时协作（Real-time Collaboration） | Agent 之间需要持续交换中间结果 |
+
+**什么时候必须 A2A + MCP 混合？**
+
+```python
+"""
+企业销售 Agent 场景（必须混合）：
+
+1. 用户问："帮我查一下这个客户的订单状态，并生成退货策略"
+
+2. 客服 Agent（用 MCP 调用内部系统）
+   ↓ MCP: 调用 order_service.get_order(customer_id)
+   ↓ MCP: 调用 return_policy.get_policy(customer_id)
+
+3. 客服 Agent 发现需要专业数据分析
+   ↓ A2A: 把"生成退货策略"委托给数据分析 Agent
+
+4. 数据分析 Agent（用 MCP 调用 BI 工具）
+   ↓ MCP: 调用 tableau_api.query(sales_data)
+
+5. 分析结果通过 A2A 传回客服 Agent
+   ↓ A2A: 返回分析结果
+
+6. 客服 Agent（用 MCP 调用邮件服务）
+   ↓ MCP: 调用 email_service.send(customer_id, strategy)
+
+结论：工具调用 = MCP，Agent 协作 = A2A，复杂场景必须混合
+"""
+
+# 架构图
+# ┌─────────────┐       MCP        ┌──────────────┐
+# │  客服Agent  │ ←──────────────→ │ Order Service │
+# │             │                  └──────────────┘
+# │             │       A2A         ┌──────────────┐
+# │             │ ←──────────────→ │ 数据分析Agent │
+# └─────────────┘                  └──────────────┘
+#       ↑                                  ↑
+#       │          MCP                     │
+#       └──────────────────────────────────┘
+#              BI Tools / Email
+```
+
+**生产级 A2A + MCP 混合架构检查项：**
+
+| 检查项 | 说明 |
+|--------|------|
+| **协议职责边界清晰** | 工具调用走 MCP，Agent 协作走 A2A，不能混用 |
+| **MCP Server 发现** | A2A Agent 发现时同步可用 MCP 工具清单 |
+| **上下文传递** | A2A 任务委派时，自动把相关 MCP 工具上下文一起传 |
+| **错误处理** | MCP 超时 → A2A 重试；A2A Agent 不可用 → 降级到其他 Agent |
+| **安全隔离** | MCP 工具调用走工具鉴权，A2A 通信走 Agent 身份认证 |
+| **监控分离** | MCP 指标和 A2A 指标分开收集，独立告警 |
+
+**面试话术：**
+> "A2A 和 MCP 是不同层的协议，不存在谁替代谁。我的经验法则：'Agent 找工具'用 MCP，'Agent 找 Agent'用 A2A。企业级场景几乎都需要混合——单 Agent 调用工具时用 MCP，多 Agent 协作分工时用 A2A。面试时能说清楚协议边界和什么时候必须混合，说明你对 Agent 架构有生产级理解。"
+
+</details>

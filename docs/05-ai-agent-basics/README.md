@@ -3243,3 +3243,85 @@ def monitor():
 ---
 
 [返回目录 →](../../README.md)]
+
+### Q18: Voyager 是什么？为什么"具身智能终身学习"是2026年 Agent 最重要的方向之一？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**Voyager 核心定位：**
+
+Voyager = 第一个在《我的世界》中实现"具身智能终身学习"的 Agent 系统（2023年UC Berkeley发布），2026年成为具身智能 Agent 的标杆。
+
+**为什么 Voyager 重要？**
+
+| 对比维度 | 传统 Agent | Voyager |
+|----------|-----------|---------|
+| **学习方式** | 单次任务完成 | 终身学习（持续积累技能） |
+| **知识保留** | 无记忆，每次从零 | 技能库（Skill Library）持久化 |
+| **泛化能力** | 差，只能做训练过的任务 | 强，能解决新问题 |
+| **人工干预** | 需要频繁人类指导 | 最小化，自我驱动 |
+
+**Voyager 三大核心组件：**
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Voyager 架构                        │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  1. 技能库（Skill Library）                          │
+│     ├── 存储学到的技能（代码片段）                    │
+│     ├── 跨任务复用                                   │
+│     └── 持久化到磁盘                                 │
+│                                                      │
+│  2. 迭代提示机制（Iterative Prompting）               │
+│     ├── Self-Verify：验证动作是否完成目标             │
+│     ├── Self-Refine：根据反馈修正动作               │
+│     └── 持续迭代直到成功                             │
+│                                                      │
+│  3. 环境反馈（Environment Feedback）                 │
+│     ├── Minecraft 游戏状态                           │
+│     ├── 代码执行结果                                 │
+│     └── 任务进度检测                                 │
+└─────────────────────────────────────────────────────┘
+```
+
+**与传统 ReAct 的关键区别：**
+
+```python
+# ReAct 模式：Think-Act-Observe 单次循环
+for step in range(max_steps):
+    thought = llm.think(task, history)
+    action = execute(thought)
+    obs = observe(action)
+    history.append(obs)
+
+# Voyager 模式：终身学习循环
+while not task_complete:
+    # 1. 尝试用现有技能解决问题
+    plan = llm.plan(task, skill_library)
+    if can_execute(plan, skill_library):
+        execute_and_verify(plan)
+    else:
+        # 2. 学新技能
+        new_skill = llm.learn_skill(task, failure_feedback)
+        skill_library.add(new_skill)
+    
+    # 3. 自我验证
+    if not verify(task):
+        refine_plan()
+```
+
+**为什么 2026 年"终身学习"成为焦点？**
+
+| 驱动因素 | 说明 |
+|----------|------|
+| **Eternal Intern Problem** | 如果 Agent 每次新任务都要人类手把手教，成本太高 |
+| **知识复用** | 学会"砍树"技能后，"砍不同树"不需要重新学 |
+| **人工干预减少** | 真正自主的 Agent 必须能从经验中学习 |
+| **具身智能爆发** | 机器人/自动驾驶需要持续适应新环境 |
+
+**面试话术：**
+> "Voyager 的核心贡献是证明了'Agent 可以像人类一样终身学习'。它通过技能库让 Agent 记住学过的技能，通过自我验证和修正让 Agent 能从失败中学习。2026 年这个方向火的原因是'Eternal Intern Problem'——如果每次任务都要人类从头教，Agent 的价值大打折扣。真正有用的 Agent 必须能积累经验、复用技能、自主学习。我的经验是：选型时看 Agent 是否有持久化技能库和自我改进机制，这才是生产级 Agent 和 demo 级 Agent 的本质区别。"
+
+</details>

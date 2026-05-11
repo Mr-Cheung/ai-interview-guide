@@ -1485,3 +1485,143 @@ result = client.query.get("Article", ["title", "content"]) \
 ---
 
 *版本: v1.16 | 更新: 2026-05-09 | by 二狗子 🐕*
+
+---
+
+## 十、2026年 Late Interaction 检索：ColBERTv2、ColPali、ColQwen（Q10）
+
+### Q10: 什么是 Late Interaction 检索？为什么它是2026年向量检索的重要方向？ColBERTv2、ColPali、ColQwen 各自特点是什么？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么需要 Late Interaction？**
+
+传统向量检索有两难：
+- **No-interaction（bi-encoder）**：快（预计算文档向量），但不准（查询和文档分开编码，丢失细粒度匹配）
+- **Full-interaction（cross-encoder）**：准（查询文档联合编码），但慢（每个文档都要在线计算）
+
+Late Interaction = **又快又准**的第三条路
+
+**三种交互模式对比：**
+
+```
+No-Interaction（bi-encoder）：
+Query编码 → [q] ──────────────→ 与预计算文档向量比对
+Doc编码 → [d1,d2,d3...]（离线预计算）
+
+Full-Interaction（cross-encoder）：
+Query+Doc1 → [联合编码] → 打分
+Query+Doc2 → [联合编码] → 打分  → 每个文档都要在线计算，慢
+...
+
+Late Interaction：
+Query编码 → [q1,q2,q3...]（多向量）
+Doc编码 → [d1,d2,d3...]（多向量，多向量）
+                              ↓
+                       token级别延迟交互
+                       MAX(qi · dj) 求和
+                       → 保留细粒度 + 保持可扩展性
+```
+
+**Late Interaction 核心公式：**
+
+```
+Score(Query, Doc) = Σ_max(q_i · D)
+
+其中：
+- qi = Query的第i个token向量
+- D = 文档的token向量矩阵
+- max = 每个query token与所有doc token的最佳匹配
+- Σ = 所有query token的得分求和
+
+这允许：
+1. 每个token独立与文档交互（细粒度）
+2. 文档向量预计算（快速检索）
+3. 查询时只计算query向量（实时性）
+```
+
+**ColBERTv2：文本 Late Interaction**
+
+```python
+# ColBERTv2 检索流程
+from colbert import Searcher
+
+searcher = Searcher(index="my_index")
+
+# 查询时：只编码query，文档向量预计算好
+ rankings = searcher.search("What is RAG?")
+
+# ColBERTv2 的改进：
+# 1. Residual Compression：压缩向量大小5-8倍
+# 2. Denoised Supervision：在干净数据上训练，减少噪声
+# 3. PLAID引擎：GPU上快7x，CPU上快45x
+```
+
+**ColPali：多模态 Late Interaction**
+
+ColPali 用 **视觉语言模型（ViLM）** 直接为文档生成多向量表示，不需要OCR或文本提取。
+
+```python
+# ColPali 核心思想
+# 文档输入：PDF截图 / 图片
+# 编码器：SigLIP / ViLM（视觉语言模型）
+# 输出：每个patch一个向量（比token更粗粒度）
+
+# 优势：
+# 1. 不需要文本提取，保留布局/表格/图表信息
+# 2. 多语言支持好（不用OCR语言识别）
+# 3. 文档格式无关（PPT、扫描件都行）
+
+from peft import ColPaliModel
+
+model = ColPaliModel.from_pretrained("vidore/colpali")
+# 输入：图片 → 每个patch的向量
+```
+
+**ColQwen：Qwen驱动的多模态 Late Interaction**
+
+```python
+# ColQwen = ColBERT思想 + Qwen视觉编码器
+# 专门针对中文和多语言场景优化
+
+from colqwen import ColQwen2
+
+model = ColQwen2.from_pretrained("Qwen/colqwen2")
+# 优势：
+# 1. Qwen原生中文理解
+# 2. 128维向量（比ColPali的128维更小，效率更高）
+# 3. 支持中文文档检索
+```
+
+**三模型对比：**
+
+| 模型 | 模态 | 向量维度 | 存储 | 适用场景 | 劣势 |
+|------|------|----------|------|----------|------|
+| **ColBERTv2** | 文本 | 128维 | 中等 | 英文文档检索、语义搜索 | 英文为主 |
+| **ColPali** | 多模态（图片） | 128维 | 大 | PDF/PPT/扫描件检索 | 存储大 |
+| **ColQwen** | 多模态（图片） | 128维 | 中等 | 中英文混合文档检索 | 中文生态新 |
+
+**Late Interaction 在 RAG 中的实战用法：**
+
+```python
+# 两阶段检索：Late Interaction + Reranker
+def hybrid_retrieval(query, collection, top_k=100):
+    # 第一阶段：ColBERT 快速检索（保持细粒度）
+    coarse_results = colbert_search(query, collection, k=top_k)
+    
+    # 第二阶段：Cross-encoder 重排（精排）
+    reranked = cross_encoder_rerank(query, coarse_results)
+    
+    return reranked[:10]
+
+# 关键洞察：
+# Late Interaction 比传统向量检索 MRR 高 ~19%
+# 在"丢失中间信息"问题上表现更好
+# 因为每个query token都能找到最匹配的doc token
+```
+
+**面试话术：**
+> "Late Interaction 是 2026 年向量检索最重要的方向。核心思想是'延迟交互'——文档向量预计算保持快速，查询时每个 token 与所有文档 token 交互保持精确。类比的话，no-interaction 就像只看书的摘要，full-interaction 就像把书拆成单页逐页对比，late interaction 是两者的折中——先按语义快速筛选，再用 token 级别精细匹配。ColBERTv2 用于文本，ColPali 用于 PDF/图片等多模态文档，ColQwen 是中文优化的版本。2026 年有专门的 Late Interaction Workshop（ECIR 2026），说明学术界也在关注这个方向。"
+
+</details>

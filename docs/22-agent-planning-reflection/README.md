@@ -720,4 +720,95 @@ Mem0 发布了论文《Building Production-Ready AI Agents with Scalable Long-Te
 
 ---
 
-*版本: v2.8 | 更新: 2026-05-08 | by 二狗子 🐕*
+*版本: v2.9 | 更新: 2026-05-14 | by 二狗子 🐕*
+
+---
+
+### Q14: ExACT 是什么？为什么"测试时计算扩展"是 2026 年 Agent 推理的核心方向？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**背景：训练时扩展 vs 测试时扩展**
+
+> "传统 AI 模型能力提升主要靠训练时扩展（Scaling Training Compute）——更大的模型、更多的数据、更长的训练。但 OpenAI 的 Noam Brown 在 2026 年 Stanford 演讲中指出，推理模型（o1/o3/o4）开启了一个新维度——测试时计算扩展（Scaling Test-Time Compute）。这意味着 AI 可以在推理阶段主动分配更多计算资源来解决复杂问题，而不是简单地在训练时烧掉算力。"
+
+---
+
+**ExACT（Microsoft Research 2026）——测试时计算扩展的 Agent 版本**
+
+```
+训练时扩展：模型越大越强
+测试时扩展：给定模型，推理时分配更多计算
+
+ExACT = R-MCTS（Reflective Monte Carlo Tree Search）+ Exploratory Learning
+```
+
+**R-MCTS 核心原理：**
+
+```
+传统 Agent：单次前向推理 → 工具调用 → 完成
+R-MCTS：多次搜索 → 回溯 → 选择最优路径
+
+关键差异：
+- 不是"一次推理出结果"，而是"多次探索找最优"
+- 像下棋一样，Agent 可以搜索不同的行动路径
+- Reflective 机制：评估当前状态，决定是否需要回溯
+```
+
+**四种测试时计算策略对比：**
+
+| 策略 | 原理 | 适用场景 | 计算成本 |
+|------|------|----------|----------|
+| **Best-of-N (BoN)** | 采样 N 次，选择最佳 | 简单问答，有明确答案 | 中 |
+| **Beam Search** | 保留 Top-K 路径，逐层扩展 | 代码生成，多步推理 | 高 |
+| **Sequential Revision** | 反射模型触发重新生成 | 复杂推理，需修正 | 中高 |
+| **R-MCTS** | 蒙特卡洛树搜索 + 回溯 | 多步决策，视觉/任务规划 | 最高 |
+
+**ExACT 的核心创新：Exploratory Learning**
+
+```
+Imitation Learning（传统）：
+  → 学习"最优动作"（从搜索结果中学）
+
+Exploratory Learning（ExACT 新范式）：
+  → 学习"如何探索"（评估状态、探索路径、回溯无效分支）
+  
+价值：Agent 不仅知道最优解，还能主动避免错误路径
+```
+
+**vs 传统 Agent 架构：**
+
+| 维度 | 传统 ReAct/Plan | R-MCTS/ExACT |
+|------|-----------------|--------------|
+| 推理模式 | 单次前向 | 多次搜索 |
+| 错误处理 | 硬编码 max_steps | 动态回溯 |
+| 计算分配 | 固定 | 自适应（按问题难度） |
+| 适用场景 | 简单问答 | 复杂多步决策 |
+
+**生产级应用场景：**
+
+```
+1. VisualWebArena（视觉 Agent）
+   → 给定 UI 界面截图，Agent 需要规划多步操作
+   → R-MCTS 在 234 个分类任务上显著优于单次推理
+
+2. 代码生成与调试
+   → 生成 → 评估 → 回溯 → 重试
+   → 比单纯多轮对话更高效
+
+3. 金融/法律多步推理
+   → 证据收集 → 假设验证 → 结论推导
+   → 测试时计算确保复杂推论的可靠性
+```
+
+**面试话术：**
+
+> "2026 年面试里，'测试时计算扩展'已经成为区分高端 Agent 候选人的关键概念。传统面试回答是'ReAct 加 max_steps 防止死循环'，但真正理解 R-MCTS 的候选人会说'Agent 应该在推理时主动分配计算资源，像下棋一样搜索最优路径，评估状态并回溯到更有效的分支'。ExACT 的核心洞察是——Agent 的能力不仅来自训练时的扩展，还来自推理时'主动思考'的能力。这是 2026 年 Agent 架构从'执行者'到'思考者'转变的理论基础。"
+
+**延伸阅读：**
+- Microsoft Research: "ExACT: Improving AI agents' decision-making via test-time compute scaling"
+- Stanford CS224r: "RL for LLMs: Reasoning" (Noam Brown, 2026)
+
+</details>
+

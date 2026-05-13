@@ -2198,4 +2198,122 @@ llm = LLM(
 
 ---
 
-*版本: v2.9 | 更新: 2026-05-09 | by 二狗儿 🐕*
+*版本: v3.0 | 更新: 2026-05-14 | by 二狗子 🐕*
+
+---
+
+### Q17: 什么是 Continuous Batching 和 Chunked Prefill？2026 年为什么它们是推理引擎的核心优化？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**背景：推理系统的三大瓶颈**
+
+> "LLM 推理有三大瓶颈：计算（Compute）、内存（Memory Bandwidth）、通信（Network）。2026 年主流推理引擎（vLLM、SGLang、TGI）的核心优化都围绕这三点展开，其中 Continuous Batching 和 Chunked Prefill 是最具生产价值的两项技术。"
+
+---
+
+**Continuous Batching（连续批处理）**
+
+```
+传统 Batching（Static Batching）：
+  → 批量接收请求，等所有请求完成，一起返回
+  → 问题：短请求等长请求，GPU 利用率低
+
+Continuous Batching（迭代级批处理）：
+  → 每生成一个 token 就重新分配 GPU 资源
+  → 完成生成的用户立即离开，新用户立即加入
+  → GPU 利用率最大化
+```
+
+**对比图：**
+
+```
+Static Batching 时序：
+
+请求A：[────────生成16步────────]
+请求B：[────────────────生成32步────────────────]
+请求C：[────────生成16步────────]
+
+↓ GPU 利用率：低（长请求阻塞短请求）
+
+Continuous Batching 时序：
+
+步1: [A][B][C]    → 生成 3 tokens 并行
+步2: [A][B][C]    → 生成 3 tokens 并行
+...
+步16: [A完成][B][C] → A 离开，C 加入
+步17: [D][B][C]    → 新请求 D 加入
+...
+```
+
+**Chunked Prefill（分段预填充）**
+
+```
+问题：预填充阶段（计算 attention）显存需求巨大
+     长序列预填充会阻塞新请求进入
+
+解决：将预填充分成多个 chunk，逐块处理
+     每个 chunk 后插入一个 decode step
+     新请求可以更快进入 decode 阶段
+```
+
+```
+传统 Prefill：
+[===========Prefill 128K tokens===========] → decode → Blocked!
+
+Chunked Prefill：
+[Prefill 4K] → decode → [Prefill 4K] → decode → [Prefill 4K] → decode → ...
+                    ↑ 新请求可以更快进入
+```
+
+**2026 年 vLLM 0.5 的 Chunked Prefill 实现：**
+
+```python
+# vLLM 0.5 chunked prefill 配置
+config = {
+    "chunked_prefill": {
+        "max_chunk_size": 4096,  # 每块 4K tokens
+        "preemptible": True,      # 可抢占长序列
+        "decode_ratio": 0.3       # 每 3 个 prefill token 插入 1 个 decode
+    }
+}
+
+# 生产效果：
+# - 首 token 延迟降低 40%
+# - 吞吐量提升 2-3x
+# - 长短请求混合场景下 GPU 利用率 > 85%
+```
+
+**Continuous Batching + Chunked Prefill 的组合效果：**
+
+| 指标 | 传统 Batching | Continuous + Chunked |
+|------|---------------|---------------------|
+| GPU 利用率 | 40-60% | 80-95% |
+| 平均时延（P99） | 高（长请求阻塞） | 低（动态分配） |
+| 吞吐量 | 100 req/s | 300+ req/s |
+| 长序列支持 | 差（阻塞严重） | 好（chunked preemptible） |
+
+**生产级配置建议：**
+
+```python
+# vLLM 生产配置
+vllm serve meta-llama/Llama-4-17B
+  --gpu-memory-utilization 0.92
+  --max-num-batched-tokens 32768
+  --max-num-seqs 256
+  --enable-chunked-prefill
+  --prefill-chunk-size 4096
+  --scheduler-max-num-seqs 256
+```
+
+**面试话术：**
+
+> "2026 年推理引擎的核心优化是 Continuous Batching + Chunked Prefill 的组合拳。Continuous Batching 解决'谁先完成谁先走'的资源动态分配问题，Chunked Prefill 解决'长序列预填充阻塞新请求'的延迟问题。实际生产中，vLLM 0.5 启用这两个特性后，GPU 利用率从 50% 提升到 90%，吞吐提升 3 倍。面试能说清楚这两个技术的工作原理和 trade-off，说明你对推理系统有实战理解，而不是只会调 API。"
+
+**延伸阅读：**
+- vLLM Blog: "Chunked Prefill in vLLM 0.5"
+- Hugging Face: "Continuous Batching Explained"
+
+</details>
+

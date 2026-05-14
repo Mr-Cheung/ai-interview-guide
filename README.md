@@ -2,7 +2,7 @@
 
 # 🚀 AI 应用开发工程师面试宝典
 
-> **⚠️ 本次更新(v3.118)：新增 Q35 ACP/UCP四大协议栈 + Q36 MCP六大安全挑战**
+> **⚠️ 本次更新(v3.119)：新增 Q13-Q15 Prompt工程三连（JSON Mode/Structured Outputs/Function Calling区别 + ReAct局限 + System Prompt稳定性）**
 
 **🎯 385+ 道高频面试题 | 24 个核心模块 | 从基础到进阶系统化学习**
 
@@ -13,7 +13,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/guocong-bincai/ai-interview-guide/pulls)
 
 **适用岗位:** AI应用工程师 · LLM工程师 · AI Agent开发 · RAG系统开发
-**版本:** v3.118 | **最后更新:** 2026-05-14"""
+**版本:** v3.119 | **最后更新:** 2026-05-15"""
 
 [📖 开始学习](#-学习路线) · [🔥 高频题库](#-核心面试题按难度分级) · [💡 实战案例](#-实战案例) · [🤝 贡献指南](#-贡献指南)
 
@@ -1046,6 +1046,16 @@ Made with ❤️ for the AI Community
 | 🆕 | [🛠️ 框架与工具（新增Q12）](docs/12-frameworks-tools/) | Q12 DSPy声明式LLM编程（斯坦福/Compiler自动优化Prompt/ vs 传统Prompt工程/2026范式转变/生产实践） | 🔥🔥🔥🔥 | +1 |
 
 *版本: v3.83 | 更新: 2026-04-24 | by 二狗子 🐕*
+
+## 📚 数据更新（v3.119 - 2026-05-15）
+
+| 序号 | 模块 | 新增内容 | 高频度 | 题数 |
+|------|------|----------|--------|------|
+| 🆕 | [✍️ Prompt工程（新增Q13-Q15）](docs/02-prompt-engineering/) | Q13 Structured Outputs vs JSON Mode vs Function Calling三阶段对比、Q14 ReAct三大缺陷(上下文漂移/高延迟/规划执行耦合)及工程规避方案、Q15 System Prompt稳定性8要素模板 | 🔥🔥🔥🔥 | +3 |
+
+*版本: v3.119 | 更新: 2026-05-15 | by 二狗子 🐕*
+
+---
 
 ## 📚 数据更新（v3.118 - 2026-05-14）
 

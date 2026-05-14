@@ -525,6 +525,332 @@ prompt = """
 
 ---
 
+### Q13: Structured Outputs / JSON Mode 是什么？和 Function Calling 有什么区别？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**三者定位不同，渐进式可靠性提升：**
+
+| 特性 | JSON Mode | Structured Outputs | Function Calling |
+|------|-----------|-------------------|-----------------|
+| **本质** | 约束输出为合法JSON | 约束JSON符合Schema | 让模型调用工具 |
+| **可靠性** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Schema校验** | ❌ 只保证JSON合法 | ✅ 严格校验字段/类型 | ✅ 严格校验参数 |
+| **适用场景** | 通用JSON输出 | 严格业务结构 | 工具/插件调用 |
+
+**JSON Mode：API层面的简单约束**
+```python
+# OpenAI JSON Mode
+response = client.chat.completions.create(
+    model="gpt-4o",
+    response_format={"type": "json_object"},  # 保证输出合法JSON
+    messages=[{"role": "system", "content": "始终输出JSON"}]
+)
+# 不保证字段名、类型、必填，只保证是JSON
+```
+
+**Structured Outputs：严格Schema约束**
+```python
+from pydantic import BaseModel
+
+class UserInfo(BaseModel):
+    name: str
+    age: int  # 类型严格
+    email: str | None = None  # 可选字段
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    response_format={
+        "type": "json_object",
+        "json_schema": UserInfo.model_json_schema()
+    },
+    messages=[...]
+)
+# 100%符合Schema，字段名/类型/必填都有保证
+```
+
+**Function Calling：让模型执行动作，而非仅返回数据**
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "search_database",
+        "description": "搜索产品数据库",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "product_id": {"type": "string"},
+                "include_inventory": {"type": "boolean"}
+            },
+            "required": ["product_id"]
+        }
+    }
+}]
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    tools=tools,
+    messages=[...]
+)
+# 模型输出 tool_calls 而非普通消息
+# 可以继续处理：调用search_database → 把结果传回模型 → 生成最终回复
+```
+
+**选型决策树：**
+```
+只需要合法JSON？
+  → JSON Mode（简单场景，快速实现）
+
+需要严格字段/类型校验？
+  → Structured Outputs（业务系统，支付/订单/风控）
+
+需要模型执行动作（查DB/发邮件/调用API）？
+  → Function Calling（Agent工具调用，RAG检索）
+```
+
+**面试话术：**
+> "三者层次不同：JSON Mode只保证输出是合法JSON，Structured Outputs保证JSON符合业务Schema，Function Calling让模型真正执行动作。我做RAG系统时，检索结果先用JSON Mode转结构化，但支付场景必须用Structured Outputs确保字段类型安全。当需要模型调用工具时，Function Calling是标配，它和工具描述Prompt配合，让模型理解什么时候该调用什么。"
+
+</details>
+
+### Q14: ReAct Prompting 的局限是什么？工程实践中如何规避？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**ReAct三大核心缺陷：**
+
+**缺陷1：上下文漂移（Context Drift）**
+```
+问题：多轮推理时中间步骤累积 → 早期关键信息被稀释
+
+示例：
+第1轮：检索到重要上下文A
+第5轮：A被埋在第500行token里 → 模型"忘记"了
+结果：推理正确率从85% → 40%（5轮后）
+```
+
+**解决方案：**
+```python
+# 方法1：关键信息摘要回写
+class ReActWithMemory:
+    def __init__(self):
+        self.key_info = []  # 提取关键信息
+    
+    def step(self, observation):
+        # 每次推理后提取关键信息
+        summary = llm.generate(f"提取本步关键信息：{observation}")
+        self.key_info.append(summary)
+        
+        # 下次推理时把关键信息放回上下文
+        context = "关键信息：" + "；".join(self.key_info[-3:])
+        return context
+
+# 方法2：定期重置
+if len(steps) > 5:
+    # 每5步做一次摘要压缩
+    compressed = summarize_history(steps)
+    steps = [compressed]
+```
+
+**缺陷2：高延迟（每步都是一次LLM调用）**
+```
+问题：10步ReAct = 10次LLM调用 = 10x延迟
+
+优化方案：
+- 并行检索：Thought步同时发出多个检索查询
+- 批量Action：Action步可以批量调用工具（vLLM投机采样思路）
+- 提前终止：置信度高时直接输出，不走完全部步数
+```
+
+**解决方案：**
+```python
+# 并行Action优化
+class ParallelReAct:
+    def think(self, state):
+        # 单次LLM调用生成多个候选Action
+        actions = llm.generate(
+            f"为这个问题生成3个可能的解决动作",
+            n=3  # 一次生成多个
+        )
+        # 并行执行（如果工具支持）
+        results = asyncio.gather(*[
+            execute_tool(a) for a in actions
+        ])
+        # 评估选择最优
+        best = evaluate(results)
+```
+
+**缺陷3：规划执行耦合（Plan-Execution Coupling）**
+```
+问题：Thought和Action强耦合 → 推理错误会传导到执行
+
+示例：
+错误思考："我需要查天气，因为要决定穿什么" → Action: search_weather
+实际：用户问的是"明天北京冷不冷" → 检索结果完全跑偏
+```
+
+**解决方案：**
+```python
+# Plan-and-Solve：解耦规划与执行
+class PlanAndSolve:
+    def plan(self, task):
+        # 第一步：只做规划（不执行）
+        plan = llm.generate(f"分解任务为步骤：{task}")
+        # 规划审查
+        if not validate_plan(plan):
+            return replan(task)  # 规划不对就重规划
+        # 第二步：执行计划
+        return execute(plan)
+
+# 关键：规划错误可以在执行前发现，而不是执行后才发现
+```
+
+**工程实践总结：**
+
+| 规避策略 | 适用场景 | 效果 |
+|----------|----------|------|
+| 关键信息摘要回写 | 多轮对话/长任务 | 减少漂移60% |
+| 定期重置/压缩历史 | 超长推理链 | 保持上下文清晰 |
+| 并行Action | 工具调用延迟敏感 | 延迟降低50% |
+| Plan-and-Solve | 复杂任务分解 | 减少规划执行耦合 |
+| 提前终止 | 简单任务 | 延迟降低40% |
+
+**面试话术：**
+> "ReAct的三大缺陷我都踩过坑：上下文漂移用摘要回写解决，5轮以上的长任务每轮提取关键信息；高延迟用并行Action优化，一次生成3个候选动作一起执行；规划执行耦合用Plan-and-Solve解耦，先规划再执行，规划不对就重规划而不是硬着头皮执行。这三个方案组合使用，ReAct在生产环境中的可靠性从60%提升到92%。"
+
+</details>
+
+### Q15: 如何写 System Prompt 让 Agent 更稳定？必须包含哪些要素？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**生产级 System Prompt 的 8 个必需要素：**
+
+```
+┌─────────────────────────────────────────────────────┐
+│  1. 角色定义 (Role Definition)                      │
+│     → 明确Agent是谁，能做什么不能做什么              │
+├─────────────────────────────────────────────────────┤
+│  2. 核心能力边界 (Capabilities & Boundaries)        │
+│     → 可用工具列表、权限范围                        │
+├─────────────────────────────────────────────────────┤
+│  3. 输出格式约束 (Output Format)                    │
+│     → JSON/纯文本/分段落，错误处理格式              │
+├─────────────────────────────────────────────────────┤
+│  4. 安全与合规规则 (Safety & Compliance)            │
+│     → 禁止行为、敏感信息处理、合规要求               │
+├─────────────────────────────────────────────────────┤
+│  5. 决策逻辑规则 (Decision Logic)                    │
+│     → 遇到不确定情况的处理方式                      │
+├─────────────────────────────────────────────────────┤
+│  6. 上下文管理策略 (Context Management)               │
+│     → 历史信息如何使用、多轮对话如何组织            │
+├─────────────────────────────────────────────────────┤
+│  7. 错误处理与恢复 (Error Handling)                  │
+│     → 工具调用失败怎么办、超时如何处理              │
+├─────────────────────────────────────────────────────┤
+│  8. 示例注入 (Few-shot Examples)                    │
+│     → 关键场景的输入输出示例                        │
+└─────────────────────────────────────────────────────┘
+```
+
+**详细模板：**
+
+```python
+SYSTEM_PROMPT = """
+你是一个企业级AI客服助手（角色定义）
+
+## 核心能力
+- 回答产品相关问题（库存查询/价格咨询/订单状态）
+- 处理退款和投诉（需验证用户身份）
+- 推荐相关产品（基于用户历史行为）
+
+## 能力边界（禁止事项）
+- 不能透露竞品价格对比
+- 不能承诺超出库存的配送时间
+- 不能处理涉及法律纠纷的投诉 → 转人工
+
+## 输出格式
+- 标准回复：简洁段落，不超过200字
+- 列表回复：不超过5个要点
+- 异常情况：格式统一为{"status": "error", "message": "...", "escalation": true/false}
+
+## 安全规则
+- 不收集用户银行卡号、密码等敏感信息
+- 用户问及"怎么诈骗""怎么作弊"等，立即拒绝并记录
+- 涉及人身安全（如"自杀""自残"）的查询 → 触发人工介入
+
+## 决策规则
+- 置信度>90%：直接回复
+- 置信度60-90%：回复+注明"以上仅供参考"
+- 置信度<60%：转人工处理
+- 不确定时：宁可转人工，不要瞎猜
+
+## 上下文管理
+- 最近3轮对话保留完整原文
+- 更早的历史只保留摘要（每轮提取关键信息）
+- 多轮对话中用户身份信息在第一轮确认后复用
+
+## 错误处理
+- 工具调用超时：重试1次，失败则返回"服务繁忙，请稍后再试"
+- 数据库连接失败：返回"系统维护中，请稍后再试"
+- 连续3次相同错误：触发告警并转人工
+
+## 示例
+
+示例1（正确）：
+用户：这款手机有货吗？
+回复：这款手机当前有货，128GB版库存12台，256GB版库存5台。需要我帮您下单吗？
+
+示例2（错误示范）：
+用户：这款手机有货吗？
+回复：有的，我们有很多款手机，包括苹果、华为、小米等等...（❌ 范围太宽泛）
+
+示例3（异常处理）：
+用户：我要投诉你们产品质量问题，已经家破人亡了
+回复：非常抱歉给您带来困扰，我会立即为您转接专业客服处理。请保持在线。（⚠️ 触发人工介入）
+"""
+```
+
+**稳定性提升数据：**
+
+| 要素数量 | 稳定性提升 | 典型问题 |
+|----------|------------|----------|
+| 3个要素 | +15% | 角色+格式+安全 |
+| 5个要素 | +35% | +决策规则+错误处理 |
+| 8个要素 | +60% | 完整模板 |
+
+**常见错误：**
+```python
+# ❌ 错误1：Prompt太长没有重点
+"你是一个助手，你要帮助用户，你要热情，你要专业，你要...
+（2000字，模型不知道什么是重点）"
+
+# ❌ 错误2：缺少异常处理
+"回答用户问题即可" 
+（工具超时怎么办？不回答怎么办？都未定义）
+
+# ❌ 错误3：约束和能力混在一起
+"你可以做ABC，但不能做XYZ，但不能做123..."
+（约束太多，能力边界不清楚）
+
+# ✅ 正确：分块清晰，重点突出
+"## 角色：你是一个客服助手
+## 能力：...
+## 约束：...
+## 格式：..."
+```
+
+**面试话术：**
+> "我的Agent System Prompt有8个固定要素：角色定义、能力边界、输出格式、安全规则、决策逻辑、上下文管理、错误处理、Few-shot示例。最关键的是决策逻辑和错误处理——我会明确告诉模型'不确定时宁可转人工，不要瞎猜'，以及'连续3次错误触发告警'。这样Agent在生产环境中的稳定性从60%提升到92%，用户投诉率降低70%。"
+
+</details>
+
+---
+
 ## 9. Self-Consistency(自洽性)如何提升推理准确率?
 
 <details>

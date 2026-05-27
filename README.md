@@ -2,7 +2,8 @@
 
 # 🚀 AI 应用开发工程师面试宝典
 
-> **⚠️ 本次更新(v3.124)：新增 Q15 AI Agent平台五大阵营对比(AutoGen/CrewAI/LangGraph/Coze/Dify)及企业选型决策树****
+> **⚠️ 
+本次更新(v3.125)：新增 Q8 async+httpx并发调用(24-python)、Q18 混合检索+RRF融合(20-rag-advanced)、Q15 ToT思维树(22-agent-planning)、Q20 层级职责划分(13-multi-agent)****
 
 **🎯 385+ 道高频面试题 | 24 个核心模块 | 从基础到进阶系统化学习**
 
@@ -13,7 +14,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/guocong-bincai/ai-interview-guide/pulls)
 
 **适用岗位:** AI应用工程师 · LLM工程师 · AI Agent开发 · RAG系统开发
-**版本:** v3.124 | **最后更新:** 2026-05-20"""
+**版本:** v3.125 | **最后更新:** 2026-05-20"""
 
 [📖 开始学习](#-学习路线) · [🔥 高频题库](#-核心面试题按难度分级) · [💡 实战案例](#-实战案例) · [🤝 贡献指南](#-贡献指南)
 
@@ -1136,10 +1137,10 @@ Made with ❤️ for the AI Community
 *版本: v3.117 | 更新: 2026-05-14 | by 二狗子 🐕*
 
 
-## 📚 数据更新（v3.124 - 2026-05-20）
+## 📚 数据更新（v3.125 - 2026-05-20）
 
 | 序号 | 模块 | 新增内容 | 高频度 | 题数 |
 |------|------|----------|--------|------|
 | 🆕 | [🚀 AI应用高级专题（新增Q15）](docs/15-advanced-topics/) | Q15 AI Agent平台五大阵营对比(AutoGen/CrewAI/LangGraph/Coze/Dify)、深度代码示例、企业选型决策树（2026企业版） | 🔥🔥🔥 | +1 |
 
-*版本: v3.124 | 更新: 2026-05-20 | by 二狗子 🐕*
+*版本: v3.125 | 更新: 2026-05-20 | by 二狗子 🐕*

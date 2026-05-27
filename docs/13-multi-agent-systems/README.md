@@ -2694,3 +2694,178 @@ MCP = "Agent 找工具" → 工具发现 + 调用执行 + 结果返回
 > "A2A 和 MCP 是不同层的协议，不存在谁替代谁。我的经验法则：'Agent 找工具'用 MCP，'Agent 找 Agent'用 A2A。企业级场景几乎都需要混合——单 Agent 调用工具时用 MCP，多 Agent 协作分工时用 A2A。面试时能说清楚协议边界和什么时候必须混合，说明你对 Agent 架构有生产级理解。"
 
 </details>
+
+---
+
+## 八、多Agent职责划分与层级任务分解（Q20）
+
+### Q20: 多 Agent 系统中职责划分（Role Assignment）和层级任务分解（Hierarchical Decomposition）是什么？为什么 2026 年企业级 Agent 系统必须用"层级"而不是"扁平"架构？HTTP 协议如何影响多 Agent 通信设计？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**扁平 vs 层级架构对比：**
+
+```
+扁平架构（Flat）：
+  ┌─────────────────────────────────────┐
+  │           Orchestrator              │
+  │     （单点协调，所有决策）            │
+  └─────────────────────────────────────┘
+         ↓            ↓            ↓
+    ┌────────┐   ┌────────┐   ┌────────┐
+    │检索Agent│   │生成Agent│   │审核Agent│
+    └────────┘   └────────┘   └────────┘
+    问题：Orchestrator 成为瓶颈，单点故障
+
+层级架构（Hierarchical）：
+  ┌─────────────────────────────────────┐
+  │        Manager Agent（管理层）        │
+  │  理解任务 → 分解 → 分派 → 汇总       │
+  └─────────────────────────────────────┘
+         ↓            ↓            ↓
+  ┌────────────┐ ┌────────────┐ ┌────────────┐
+  │ 执行层Agent │ │ 执行层Agent │ │ 执行层Agent │
+  │  （检索）    │ │  （生成）    │ │  （审核）   │
+  └────────────┘ └────────────┘ └────────────┘
+         ↓            ↓            ↓
+  ┌────────────┐ ┌────────────┐ ┌────────────┐
+  │ 工具层MCP  │ │ 工具层MCP  │ │ 工具层MCP  │
+  │ (搜索/数据库)│ │(生成模型) │ │(质量验证)  │
+  └────────────┘ └────────────┘ └────────────┘
+```
+
+**三层 Agent 职责划分（企业级标准）：**
+
+| 层级 | Agent | 职责 | 特点 |
+|------|--------|------|------|
+| **L1 管理（Manager）** | Task Decomposer | 理解高层需求，分解子任务，协调执行顺序 | 高层推理、低频调用 |
+| **L2 执行（Executor）** | Retrieval Agent, Generation Agent | 接收具体子任务，执行并返回结果 | 中层技能、高频调用 |
+| **L3 工具（Tool）** | MCP Server 调用 | 底层工具执行（搜索、数据库、API） | 原子操作、超高频调用 |
+
+**层级任务分解原理：**
+
+```python
+class HierarchicalMultiAgent:
+    """层级多 Agent 系统"""
+    
+    def __init__(self):
+        self.manager = ManagerAgent()       # L1
+        self.executors = {                 # L2
+            "retrieval": RetrievalAgent(),
+            "generation": GenerationAgent(),
+            "review": ReviewAgent()
+        }
+        self.tool_registry = ToolRegistry() # L3 (MCP)
+    
+    def solve(self, user_request: str) -> str:
+        # L1: Manager 理解需求，分解为子任务图
+        task_graph = self.manager.decompose(user_request)
+        # task_graph = {"steps": [("retrieval", "query"), ...], "order": "sequential"}
+        
+        # L2: 按依赖顺序执行子任务
+        context = {}
+        for step_name, step_type in task_graph["steps"]:
+            executor = self.executors.get(step_type)
+            result = executor.execute(task=step_name, context=context)
+            context[f"{step_type}_result"] = result
+        
+        # L1: Manager 汇总结果，生成最终答案
+        final_answer = self.manager.aggregate(context)
+        return final_answer
+
+
+# 扁平 vs 层级的核心区别
+"""
+扁平：
+  - 所有 Agent 都能调用所有工具
+  - 容易产生循环调用、重复调用
+  - 难以追踪任务状态
+  - 适用场景：<5个 Agent、简单任务
+
+层级：
+  - Manager 才有任务分解权限
+  - Executor 只能调用被分配的工具
+  - 任务状态清晰可追踪
+  - 适用场景：>5个 Agent、复杂任务
+"""
+```
+
+**HTTP 协议对多 Agent 通信的影响（面试重点）：**
+
+```
+为什么 HTTP 是多 Agent 通信的事实标准？
+
+1. 无状态 = 每个请求独立，Agent 可以水平扩展
+   HTTP 请求可以负载均衡到任意 Agent 实例
+
+2. 文本头 = 元数据传递（TraceID、Authorization）
+   headers["X-Trace-ID"] = "abc123"  # 分布式追踪
+   headers["X-Agent-Role"] = "retrieval"  # 角色标注
+
+3. REST 语义 = 清晰的操作语义
+   POST = 创建任务
+   GET = 查询状态
+   DELETE = 取消任务
+
+4. 广泛工具支持 = MQTT/WebSocket/SSE 都能 tunnel HTTP
+   企业内部几乎所有中间件都支持 HTTP
+
+⚠️ HTTP 的局限（必须说）：
+- 延迟高：每次请求都要 TCP 握手
+- 无内置 pub/sub：无法像 MQTT 那样 pub/sub
+- 不适合超低延迟场景：高频工具调用走 MCP 更高效
+```
+
+**生产级 Agent 职责划分决策树：**
+
+```
+有多少 Agent？
+├── ≤3 个 → 扁平架构足够
+├── 4~10 个 → 层级架构（Manager + Executors）
+└── >10 个 → 层级 + 领域分组（Domain-based）
+
+任务复杂度？
+├── 简单单一任务 → 扁平（直接执行）
+├── 中等（子任务有依赖）→ 层级（Manager 分解）
+└── 复杂（子任务并行/有条件分支）→ 层级 + 任务队列
+
+Agent 间通信频率？
+├── 高频（工具调用级别）→ MCP 直连
+├── 低频（任务委派级别）→ A2A/HTTP
+└── 混合 → A2A+MCP 分层
+```
+
+**企业级案例：智能客服多 Agent 系统职责划分：**
+
+```
+用户："帮我查一下我上个月的话费，并和上上个月对比"
+
+L1 Manager Agent：
+  → 理解意图：查询 + 对比
+  → 分解任务：[("retrieval", "查询本月话费"), ("retrieval", "查询上月话费"), ("comparison", "对比两个月")]
+  → 派发任务给 L2 Executor
+
+L2 Executor Agent（Retrieval）：
+  → 调用 MCP Server 查询数据库
+  → 返回两条账单数据
+
+L2 Executor Agent（Comparison）：
+  → 接收两条数据
+  → 调用计算工具 MCP Server
+  → 返回对比结果
+
+L1 Manager Agent：
+  → 汇总结果，生成用户友好的回复
+  → 返回："您上个月话费 128元，比上上个月多了15元，主要是因为..."
+```
+
+**面试话术：**
+
+> "2026 年企业级 Agent 系统为什么必须用层级架构？核心原因是'扁平架构在 >5 个 Agent 时会崩溃'——每个 Agent 都能调用所有工具，导致循环调用、重复调用、无法追踪任务状态。我的经验是三层分离：L1 Manager 做任务分解（只在大颗粒度调用，降低延迟成本），L2 Executor 做具体执行，L3 工具层走 MCP 直连。HTTP 协议对 Agent 通信的影响容易被忽视——它的无状态特性让 Agent 可以水平扩展，文本头让 TraceID 透传，这两点是企业级分布式 Agent 的基础。但要注意 HTTP 不适合高频工具调用，那种场景必须走 MCP。"
+
+</details>
+
+---
+
+*版本: v2.5 | 更新: 2026-05-27 | by 二狗子 🐕*

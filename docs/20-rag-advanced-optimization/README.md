@@ -2190,4 +2190,163 @@ API 网关（统一访问控制）
 
 ---
 
+## 十八、混合检索：BM25 + Dense 向量 + RRF 融合（Q18）
+
+### Q18: 什么是混合检索？为什么 2026 年企业级 RAG 必须用"稀疏 + 密集"双路检索？BM25 和 RRF 融合原理是什么？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么单一路检索不够？**
+
+| 检索方式 | 优势 | 劣势 | 适用场景 |
+|----------|------|------|----------|
+| **Dense（密集向量）** | 语义理解、近义词 | 依赖 Embedding 质量、对专有名词不敏感 | 语义相似、概念性查询 |
+| **Sparse（稀疏 BM25）** | 精确匹配、专有名词 | 无法捕捉语义、需要精确关键词 | 术语匹配、人名/型号 |
+| **混合（Hybrid）** | 两者兼顾 | 架构复杂、需要融合 | 生产环境必备 |
+
+**BM25 原理（回顾）：**
+
+```
+BM25_score(D, Q) = Σ IDF(qi) × (tf(qi,D) × (k1+1)) / (tf(qi,D) + k1 × (1-b + b × |D|/avgdl))
+
+tf = term frequency（词频）
+IDF = inverse document frequency（稀有词权重更高）
+k1 = 词频饱和参数（通常 1.2~2.0）
+b = 文档长度归一化（通常 0.75）
+```
+
+**RRF（Reciprocal Rank Fusion）原理：**
+
+```python
+def rrf_fusion(results_list: list[list[tuple]], k=60) -> list[tuple]:
+    """
+    RRF融合：多个检索结果列表合并排序
+    results_list: [[(doc_id, score), ...], [(doc_id, score), ...]]
+    k: 融合参数（通常 60，值越大各列表越平等）
+    """
+    scores = defaultdict(float)
+    
+    for results in results_list:
+        for rank, (doc_id, _) in enumerate(results):
+            # 核心公式：1/(k + rank)，排名越靠前权重越高
+            scores[doc_id] += 1 / (k + rank)
+    
+    # 按融合分数降序排列
+    sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return sorted_docs
+
+# 示例
+dense_results = [(1, 0.95), (2, 0.88), (3, 0.82)]  # 向量检索
+sparse_results = [(3, 1.0), (5, 0.9), (1, 0.7)]   # BM25检索
+
+# RRF融合后：doc_id 3 在两个列表都排前，获得最高分
+fused = rrf_fusion([dense_results, sparse_results])
+# 结果：[(3, 0.032), (1, 0.018), (2, 0.016), (5, 0.012)]
+```
+
+**生产级混合检索架构：**
+
+```python
+from rank_bm25 import BM25Okapi
+import numpy as np
+
+class HybridRetriever:
+    """生产级混合检索器：BM25 + Dense Vector + RRF"""
+    
+    def __init__(self, vector_store, embed_model, chunk_size=500):
+        self.vector_store = vector_store
+        self.embed_model = embed_model
+        self.chunk_size = chunk_size
+        self.bm25: BM25Okapi | None = None
+        self.corpus: list[str] = []
+    
+    def build_bm25_index(self, chunks: list[str]):
+        """构建 BM25 索引"""
+        # 分词（英文用空格，中文建议用 jieba）
+        tokenized_corpus = [chunk.lower().split() for chunk in chunks]
+        self.bm25 = BM25Okapi(tokenized_corpus)
+        self.corpus = chunks
+    
+    def retrieve(self, query: str, top_k: int = 10) -> list[dict]:
+        # Step 1: BM25 稀疏检索
+        bm25_scores = self.bm25.get_scores(query.lower().split())
+        top_bm25 = np.argsort(bm25_scores)[::-1][:top_k]
+        sparse_results = [(idx, bm25_scores[idx]) for idx in top_bm25]
+        
+        # Step 2: Dense 向量检索
+        query_embedding = self.embed_model.encode(query)
+        dense_results = self.vector_store.search(query_embedding, top_k)
+        
+        # Step 3: RRF 融合
+        fused = self._rrf_fusion([sparse_results, dense_results])
+        
+        # Step 4: 返回融合结果 + 来源标注
+        return [
+            {
+                "chunk": self.corpus[doc_id],
+                "doc_id": doc_id,
+                "score": score,
+                "source": self._get_source(doc_id)
+            }
+            for doc_id, score in fused[:top_k]
+        ]
+    
+    def _rrf_fusion(self, results_list: list, k=60) -> list[tuple]:
+        scores: dict[int, float] = defaultdict(float)
+        for results in results_list:
+            for rank, (doc_id, score) in enumerate(results):
+                scores[doc_id] += 1 / (k + rank)
+        return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    
+    def _get_source(self, doc_id: int) -> str:
+        # 标注来源（用于可追溯性）
+        return f"chunk_{doc_id}"
+
+# BM25 vs Dense 对比示例
+"""
+Query: "小米手机骁龙8Gen3处理器"
+
+BM25结果：
+- [0] 小米14 Pro...骁龙8Gen3... ✓ 完全匹配
+- [1] iPhone 15 Pro...A17... ✗ 包含小米但处理器不符
+
+Dense向量结果：
+- [0] 小米14...骁龙8Gen3... ✓ 语义匹配
+- [1] Redmi K70...骁龙8Gen2... ~ 语义相近但代际差
+
+RRF融合后（综合两者优势）：
+- [0] 小米14 Pro...骁龙8Gen3... (BM25精确+Dense语义=最高分)
+- [1] Redmi K70...骁龙8Gen2... (Dense次优)
+- [2] 小米13...骁龙8Gen2... (Dense第三)
+"""
+```
+
+**2026 年企业为什么必须用混合检索：**
+
+| 场景 | 单 Dense 问题 | 混合检索解决 |
+|------|--------------|--------------|
+| 专有名词查询 | "MCP协议"、"LoRA微调" 专名被误匹配 | BM25 精确命中 |
+| 竞品对比 | "华为 vs 小米拍照" 语义强但词不同 | BM25 关键词 + Dense 语义 |
+| 短Query | "LangChain Agent" 词少 Dense 召回差 | BM25 补充精确匹配 |
+| 中英混写 | "Transformer attention mechanism" | BM25 处理英文专名 |
+
+**选型决策树：**
+
+```
+查询类型？
+├── 语义性查询（概念、解释）→ Dense优先
+├── 精确匹配查询（型号、人名、术语）→ BM25优先
+├── 短Query（<5词）→ 必须混合检索
+└── 长Query（段落级）→ 混合 + Rerank
+```
+
+**面试话术：**
+
+> "2026年企业级 RAG 必须用混合检索，原因有两个：第一，单 Dense 对专有名词不敏感，'MCP协议'可能匹配到一堆语义相关但关键词不对的文档；第二，短 Query 场景下向量召回质量很差。我做过一个对比测试：纯 Dense 检索'骁龙8Gen3'召回率只有 62%，加上 BM25 后混合检索召回率提升到 89%。生产级实现要注意 RRF 的 k 参数（通常 60），太小会让精确列表主导，太大会让语义列表主导。"
+
+</details>
+
+---
+
 *版本: v2.13 | 更新: 2026-05-08 | by 二狗子 🐕*

@@ -1104,4 +1104,199 @@ def monitor_gpu_memory():
 
 ---
 
+
+### Q8: 如何用 `asyncio` + `httpx` 批量并发调用 LLM API？生产级的错误处理、重试、超时、并发控制怎么做？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**为什么需要 asyncio + httpx？**
+
+AI 应用中 LLM API 调用是 **I/O 密集型**，单线程 asyncio 能将等待时间利用起来并发处理：
+
+```python
+# 串行（3个请求各3秒）：总耗时 9s
+for prompt in prompts:
+    result = call_llm(prompt)  # 同步等待
+
+# 并发（3个请求并行）：总耗时 3s
+results = await asyncio.gather(*[call_llm(p) for p in prompts])
+```
+
+**生产级完整实现：**
+
+```python
+import asyncio
+import httpx
+from typing import Any
+from dataclasses import dataclass
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMConfig:
+    api_key: str
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-4o"
+    max_concurrent: int = 10
+    timeout: float = 60.0
+    max_retries: int = 3
+
+class AsyncLLMClient:
+    """"生产级异步 LLM API 客户端"""
+    
+    def __init__(self, config: LLMConfig):
+        self.config = config
+        self._semaphore = asyncio.Semaphore(config.max_concurrent)
+        self._client: httpx.AsyncClient | None = None
+    
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.config.base_url,
+                headers={
+                    "Authorization": f"Bearer {self.config.api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=httpx.Timeout(self.config.timeout)
+            )
+        return self._client
+    
+    async def chat(
+        self,
+        prompt: str,
+        system_message: str | None = None,
+        retry: int | None = None
+    ) -> dict[str, Any]:
+        """单次 LLM 调用，带重试和并发控制"""
+        if retry is None:
+            retry = self.config.max_retries
+        
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        
+        for attempt in range(retry):
+            async with self._semaphore:  # 并发数限制
+                try:
+                    client = await self._get_client()
+                    response = await client.post(
+                        "/chat/completions",
+                        json={
+                            "model": self.config.model,
+                            "messages": messages,
+                            "stream": False
+                        }
+                    )
+                    
+                    if response.status_code == 429:
+                        # 限流：指数退避
+                        wait = 2 ** attempt * 1.5
+                        logger.warning(f"Rate limited, waiting {wait}s")
+                        await asyncio.sleep(wait)
+                        continue
+                    
+                    if response.status_code >= 500:
+                        # 服务器错误：重试
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    
+                    response.raise_for_status()
+                    return response.json()
+                    
+                except httpx.TimeoutException:
+                    logger.warning(f"Timeout on attempt {attempt + 1}")
+                    if attempt == retry - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
+                except httpx.HTTPStatusError as e:
+                    logger.error(f"HTTP error: {e.response.status_code}")
+                    if attempt == retry - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
+                except Exception as e:
+                    logger.error(f"Unexpected error: {e}")
+                    if attempt == retry - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
+        
+        raise RuntimeError("All retries exhausted")
+    
+    async def batch_chat(
+        self,
+        prompts: list[str],
+        system_message: str | None = None,
+        stop_on_error: bool = False
+    ) -> list[Any]:
+        """批量并发调用，返回结果列表"""
+        tasks = [
+            self.chat(p, system_message=system_message)
+            for p in prompts
+        ]
+        
+        if stop_on_error:
+            return await asyncio.gather(*tasks)
+        else:
+            # 单个失败不影响其他
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            return [
+                r if not isinstance(r, Exception) else {"error": str(r)}
+                for r in results
+            ]
+    
+    async def close(self):
+        """关闭客户端（应用退出时调用）"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+
+# 使用示例
+async def main():
+    config = LLMConfig(
+        api_key="sk-xxx",
+        max_concurrent=10,
+        timeout=60.0
+    )
+    client = AsyncLLMClient(config)
+    
+    try:
+        # 批量10个提示词，最多10个并发
+        prompts = [f"请翻译第{i}句话" for i in range(10)]
+        results = await client.batch_chat(prompts)
+        
+        for i, result in enumerate(results):
+            if "error" in result:
+                print(f"Prompt {i} failed: {result['error']}")
+            else:
+                content = result["choices"][0]["message"]["content"]
+                print(f"Prompt {i}: {content}")
+                
+    finally:
+        await client.close()
+
+# asyncio.run(main())
+```
+
+**关键设计点：**
+
+| 设计点 | 实现方式 | 原因 |
+|--------|----------|------|
+| **并发控制** | `asyncio.Semaphore(10)` | 防止打爆 API 限流 |
+| **超时控制** | `httpx.Timeout(60.0)` | 避免慢请求卡死 |
+| **重试机制** | 指数退避 + 状态码判断 | 429 等一等，5xx 重试 |
+| **错误隔离** | `return_exceptions=True` | 单个失败不影响整体 |
+| **连接复用** | `httpx.AsyncClient` 单例 | 减少 TCP 建连开销 |
+| **优雅退出** | `async with + try/finally` | 确保连接关闭 |
+
+**面试话术：**
+
+> "我实现的异步 LLM 客户端有几个关键点：第一，用 Semaphore 控制并发数，防止把 LLM 提供商的 API 限流打爆；第二，对 429 用指数退避而不是直接放弃；第三，用 return_exceptions=True 让单个失败不影响其他请求；第四，超时用 httpx.Timeout 控制，不用 request.timeout 参数。这样设计后，单机 QPS 从 15 提升到 80，成本降低 60%。"
+
+</details>
+
+---
+
 *版本: v1.0 | 更新: 2026-05-09 | by 二狗子 🐕*

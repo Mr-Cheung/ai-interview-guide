@@ -812,3 +812,188 @@ Exploratory Learning（ExACT 新范式）：
 
 </details>
 
+
+---
+
+
+## 七、Tree of Thoughts：为什么"搜索树"是 2026 年 Agent 规划的新范式（Q15）
+
+
+### Q15: 什么是 Tree of Thoughts（ToT）？它和 CoT、ReAct 的核心区别是什么？为什么 2026 年复杂推理必须用"树搜索"而不是"链式推理"？
+
+<details>
+<summary>💡 答案要点</summary>
+
+**三种推理模式对比：**
+
+| 模式 | 核心思想 | 推理结构 | 失败模式 | 适用场景 |
+|------|----------|----------|----------|----------|
+| **CoT（链式思维）** | 一步步推导出答案 | 线性链 | 一步错全错 | 简单分类、常识推理 |
+| **ReAct（行动链）** | Thought → Action → Observe | 线性链 + 工具 | 漂移累积、循环 | 检索、简单Agent |
+| **ToT（思维树）** | Branch → Evaluate → Prune | 树状搜索 | 计算成本高 | 复杂规划、创意搜索 |
+
+
+**ToT 核心原理：**
+
+```python
+from typing import Callable
+import random
+
+class TreeOfThoughts:
+    """"Tree of Thoughts 实现框架"""
+    
+    def __init__(
+        self,
+        model,  # LLM
+        k: int = 5,  # 每步生成 k 个候选
+        max_depth: int = 3,  # 最大深度
+        prune_threshold: float = 0.5  # 剪枝阈值
+    ):
+        self.model = model
+        self.k = k
+        self.max_depth = max_depth
+        self.prune_threshold = prune_threshold
+    
+    def solve(self, problem: str, evaluator: Callable) -> str:
+        """
+        problem: 问题描述
+        evaluator: 评估函数，返回分数（0~1）
+        """
+        # 初始化：根节点是原始问题
+        root = {
+            "thought": problem,
+            "depth": 0,
+            "score": 1.0,
+            "parent": None
+        }
+        frontier = [root]  # 当前 frontier
+        
+        for depth in range(self.max_depth):
+            print(f"\n=== Depth {depth + 1} ===")
+            
+            # Step 1: 为每个 frontier 节点生成 k 个候选分支
+            all_candidates = []
+            for node in frontier:
+                branches = self._generate_branches(node["thought"], self.k)
+                for thought in branches:
+                    candidate = {
+                        "thought": thought,
+                        "depth": depth + 1,
+                        "score": 0.0,
+                        "parent": node
+                    }
+                    all_candidates.append(candidate)
+            
+            # Step 2: 并行评估所有候选节点
+            for candidate in all_candidates:
+                candidate["score"] = evaluator(candidate["thought"])
+            
+            # Step 3: 剪枝 + 更新 frontier
+            # 按分数排序，保留 top-k
+            all_candidates.sort(key=lambda x: x["score"], reverse=True)
+            frontier = all_candidates[:self.k]
+            
+            print(f"Generated {len(all_candidates)} candidates, kept top {self.k}")
+            for c in frontier:
+                print(f"  Score {c['score']:.2f}: {c['thought'][:50]}...")
+            
+            # 如果 top 分数已经很高，提前终止
+            if frontier[0]["score"] > 0.95:
+                break
+        
+        # 返回最佳叶节点
+        return frontier[0]
+    
+    def _generate_branches(self, thought: str, k: int) -> list[str]:
+        """为当前思考生成 k 个分支"""
+        prompt = f"""Current thought: {thought}
+
+Generate {k} different possible next steps or approaches. 
+Consider different angles and strategies:
+"""
+        response = self.model.generate(prompt)
+        # 解析出 k 个分支（简化处理）
+        branches = [line.strip() for line in response.split('\n') if line.strip()]
+        return branches[:k]
+
+
+# 使用示例：创意写作问题
+def evaluate_story(thought: str) -> float:
+    """评估故事创意的质量（简化版）"""
+    keywords = ["surprise", "emotion", "conflict", "resolution"]
+    score = sum(1 for kw in keywords if kw.lower() in thought.lower()) / len(keywords)
+    # 加入人工判断或用另一个 LLM 评估
+    return min(1.0, score + random.uniform(0, 0.2))
+
+
+# 问题：写一个"AI取代人类"但"人类最终胜出"的故事开头
+problem = "Write a story opening about AI replacing humans, but where humanity ultimately prevails"
+tot = TreeOfThoughts(model=llm, k=5, max_depth=3, prune_threshold=0.6)
+best = tot.solve(problem, evaluator=evaluate_story)
+print(f"\nBest story opening: {best['thought']}")
+```
+
+**ToT vs ReAct 核心区别：**
+
+```
+ReAct（链式）：
+  问题 → Thought1 → Action1 → Observe1 → Thought2 → Action2 → ...
+              ↓
+           如果 Action2 错了，整个链条可能偏离目标
+           没有回退机制，只能一条路走到黑
+
+ToT（树搜索）：
+                      问题
+                    /   |   \
+              Branch1 Branch2 Branch3
+              / | \    / | \    / | \
+            ...  ...  ...  ...  ...
+                   ↓
+            评估每个分支的得分，剪枝低分分支
+                   ↓
+            继续探索高分分支，重复直到找到满意解
+                   ↓
+            全局最优解（不是局部最优）
+```
+
+
+**2026 年为什么复杂推理必须用 ToT：**
+
+| 场景 | CoT/ReAct 问题 | ToT 优势 |
+|------|----------------|----------|
+| **创意生成** | 一次性生成，风格单一 | 多分支探索，找到最有创意解 |
+| **复杂规划** | 一步错全错，无法回退 | 树搜索 + 剪枝，找到全局最优 |
+| **谈判/博弈** | 线性推理无法考虑对手反应 | 多路径博弈树，评估对手策略 |
+| **调试/修复** | 单次修复尝试可能失败 | 多方案并行试错，找到正确修复 |
+| **数学证明** | 关键步骤错误导致证明失败 | 探索多条证明路径，回溯无效分支 |
+
+**ToT 的局限性（面试必须能说）：**
+
+| 问题 | 影响 | 解决方案 |
+|------|------|----------|
+| **计算成本高** | 每步生成 k 个分支，指数增长 | Beam Search 限制宽度、及早剪枝 |
+| **评估函数难设计** | 评估不准确导致错误剪枝 | 用 LLM-as-a-Judge、或训练专用评估模型 |
+| **不适合简单问题** | 杀鸡用牛刀 | ToT 用于复杂问题，CoT 用于简单问题 |
+| **并行开销大** | 需要同时调用 LLM k×depth 次 | 批处理、异步调用 |
+
+**生产级选型决策树：**
+
+
+```
+问题类型？
+├── 简单分类/常识 → CoT（最低成本）
+├── 检索类/单步决策 → ReAct（适中成本）
+├── 复杂规划/创意/博弈 → ToT（高成本高收益）
+└── 超复杂问题（数学证明/代码生成）→ ToT + LLM评估器
+```
+
+**面试话术：**
+
+> "ToT 和 ReAct 的本质区别是'链'和'树'。ReAct 像走迷宫时只记住来时的路，走错了只能从头开始；ToT 像走迷宫时同时探索多条路径，走不通的支路直接放弃。我用过 ToT 做一个代码生成项目：用户需求很复杂，一次生成的成功率只有 30%，用 ToT 并行生成 5 个版本再评估筛选，成功率提升到 75%。核心经验是 ToT 不适合所有问题——简单问题用 CoT 就行，只有复杂规划、创意生成这类'没有标准答案'的问题才需要 ToT 的树搜索能力。2026 年面试里，能说清楚 ToT 适用场景和局限性的人，比只会背 ReAct 的人高一个档次。"
+
+</details>
+
+---
+
+*版本: v1.5 | 更新: 2026-05-15 | by 二狗子 🐕*
+
